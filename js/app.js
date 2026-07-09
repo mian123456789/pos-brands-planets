@@ -914,18 +914,23 @@
       const currentRecord = todayAttendance(cashierName);
       const canManage = currentUser?.role === "Owner";
       document.getElementById("attendance").innerHTML = `<div class="card">
-        <div class="section-title"><h3>Attendance</h3><div class="user-actions"><button class="btn orange" onclick="markAttendance()">${needsMark ? "Mark Attendance First" : "Mark Attendance"}</button>${needsOut ? `<button class="btn light" onclick="markOutAttendance()">Mark Out</button>` : ""}</div></div>
+        <div class="section-title"><h3>Attendance</h3><div class="user-actions">${needsOut ? `<button class="btn light" onclick="markOutAttendance()">Mark Out</button>` : ""}</div></div>
         <div class="attendance-user-card">
-          <small>Cashier Name</small>
+          <small>${needsMark ? "Mark attendance first" : "Mark another attendance"}</small>
           <strong>${cashierName}</strong>
-          <span>${currentRecord ? `In: ${currentRecord.time} | Out: ${currentRecord.outTime || "Pending"}` : "Attendance not marked today"}</span>
+          <span>${currentRecord ? `Last in: ${currentRecord.name || currentRecord.username} at ${currentRecord.time}` : "Type person name and mark present"}</span>
+          <div class="form-grid" style="margin-top:10px">
+            <div class="field wide"><label>Person Name</label><input id="attendancePersonName" placeholder="Enter person name" onkeydown="attendanceNameKey(event)"></div>
+            <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()">Mark Present</button></div>
+          </div>
         </div>
-        ${needsMark ? `<div class="alert">Please mark your attendance first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Daily tracking for cashiers and monthly export for admin review.</p>`}
+        ${needsMark ? `<div class="alert">Please type the person name and click Mark Present first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Attendance stays ready so another person can be marked present whenever this tab is opened.</p>`}
         <div class="table-wrap"><table><thead><tr><th>Date</th><th>User</th><th>Role</th><th>In Time</th><th>Out Time</th><th>Status</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>
         ${monthRows.slice().reverse().map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No attendance for this month.</td></tr>`}
         </tbody></table></div>
         <button class="btn light" style="margin-top:14px" onclick="exportCSV('attendance')">Export Attendance to Excel</button>
       </div>`;
+      setTimeout(() => document.getElementById("attendancePersonName")?.focus(), 50);
     }
     function attendanceRow(record, canManage) {
       return `<tr>
@@ -939,12 +944,22 @@
       </tr>`;
     }
     function markAttendance() {
-      if (hasAttendanceToday(currentUser.username)) return toast("Attendance already marked today.");
-      state.attendance.push({ id: uid("a"), date: todayKey(), username: currentUser.username, name: currentUser.username, role: currentUser.role, time: new Date().toLocaleTimeString(), status: "Present" });
+      const personName = document.getElementById("attendancePersonName")?.value.trim();
+      if (!personName) {
+        toast("Enter person name first.");
+        document.getElementById("attendancePersonName")?.focus();
+        return;
+      }
+      state.attendance.push({ id: uid("a"), date: todayKey(), username: currentUser.username, name: personName, role: currentUser.role, time: new Date().toLocaleTimeString(), status: "Present" });
       save();
       renderNav();
       renderAttendance();
-      toast("Attendance marked. POS is unlocked.");
+      toast(`${personName} marked present.`);
+    }
+    function attendanceNameKey(event) {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      markAttendance();
     }
     function openAttendanceModal(id) {
       if (!requireOwner()) return;
