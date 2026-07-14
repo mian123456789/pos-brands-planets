@@ -259,7 +259,7 @@
       flex: 1 1 190px;
     }
     .attendance-table table {
-      min-width: 920px;
+      min-width: 820px;
     }
 
     .app {
@@ -2464,8 +2464,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           ${attendanceReportCard("Completed", report.summary.completed)}
           ${attendanceReportCard("No Record", report.summary.none)}
         </div>
-        <div class="table-wrap attendance-table"><table><thead><tr><th>Date</th><th>Cashier</th><th>Name</th><th>Role</th><th>In Time</th><th>Out Time</th><th>Status</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>
-        ${report.rows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 8 : 7}">No attendance rows for this month.</td></tr>`}
+        <div class="table-wrap attendance-table"><table><thead><tr><th>Date</th><th>Name</th><th>Role</th><th>In Time</th><th>Out Time</th><th>Status</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>
+        ${report.rows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No attendance rows for this month.</td></tr>`}
         </tbody></table></div>
       </div>`;
       setTimeout(() => document.getElementById("attendancePersonName")?.focus(), 50);
@@ -2489,7 +2489,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         cashiers.forEach(username => {
           const records = state.attendance.filter(record => record.username === username && record.date === date);
           if (!records.length) {
-            rows.push({ id: "", date, username, name: "-", role: "Cashier", time: "-", outTime: "-", status: "No Record", virtual: true });
+            rows.push({ id: "", date, username, name: username, role: "Cashier", time: "-", outTime: "-", status: "No Record", virtual: true });
             summary.none++;
             return;
           }
@@ -2508,7 +2508,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const badgeClass = status === "Completed" || status === "Present" ? "good" : "warn";
       return `<tr>
         <td>${record.date}</td>
-        <td><strong>${record.username || "-"}</strong></td>
         <td><strong>${record.name || record.username}</strong></td>
         <td>${record.role}</td>
         <td>${record.time || "-"}</td>
@@ -2884,7 +2883,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (type === "attendance") {
         const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
         const report = buildMonthlyAttendanceReport(selectedMonth);
-        rows = [["Date","Cashier","Name","Role","In Time","Out Time","Status"], ...report.rows.slice().reverse().map(a => [a.date,a.username,a.name || a.username,a.role,a.time || "",a.outTime || "",a.status])];
+        rows = [["Date","Name","Role","In Time","Out Time","Status"], ...report.rows.slice().reverse().map(a => [a.date,a.name || a.username,a.role,a.time || "",a.outTime || "",a.status])];
       }
       const csv = rows.map(r => r.map(v => `"${String(v ?? "").replaceAll('"','""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
