@@ -220,6 +220,47 @@
       font-weight: 800;
       font-size: 13px;
     }
+    .attendance-report-head {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 12px;
+      margin: 14px 0;
+    }
+    .attendance-report-card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fbfdff;
+      padding: 13px;
+      box-shadow: 0 8px 20px rgba(13,43,79,0.06);
+    }
+    .attendance-report-card small {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .attendance-report-card strong {
+      display: block;
+      margin-top: 6px;
+      color: var(--blue);
+      font-size: 22px;
+    }
+    .attendance-month-bar {
+      display: flex;
+      gap: 10px;
+      align-items: end;
+      flex-wrap: wrap;
+      margin: 14px 0;
+    }
+    .attendance-month-bar .field {
+      margin: 0;
+      max-width: 240px;
+      flex: 1 1 190px;
+    }
+    .attendance-table table {
+      min-width: 920px;
+    }
 
     .app {
       min-height: 100vh;
@@ -1359,6 +1400,7 @@
       .chart-live { width: fit-content; }
       .chart-kpis { grid-template-columns: 1fr; }
       .chart-wrap { height: 280px; padding: 12px; }
+      .attendance-report-head { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .close-metrics, .close-actions, .expense-form, .settings-grid, .user-create { grid-template-columns: 1fr; }
       .close-net { align-items: stretch; flex-direction: column; }
       .close-date { min-width: 0; text-align: left; }
@@ -1389,6 +1431,7 @@
       .btn.icon { flex: 0 0 42px; }
       .card { padding: 14px; }
       .section-title { align-items: flex-start; flex-direction: column; }
+      .attendance-report-head { grid-template-columns: 1fr; }
       .toolbar .btn { width: 100%; }
       .scan-input { min-height: 58px; font-size: 16px; }
       .pos-panel-head, .pos-panel-body { padding: 14px; }
@@ -2098,7 +2141,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function closeModal() { document.getElementById("modalRoot").innerHTML = ""; }
 
     function renderBilling() {
-      const mustAttend = currentUser.role === "Cashier" && !hasAttendanceToday(currentUser.username);
+      const mustAttend = currentUser.role === "Cashier" && !hasWorkAttendanceToday(currentUser.username);
       document.getElementById("billing").innerHTML = `
         ${mustAttend ? `<div class="alert">Cashier must mark attendance first before creating bills.</div>` : ""}
         <div class="pos-grid">
@@ -2267,7 +2310,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function removeCart(id) { cart = cart.filter(i => i.id !== id); renderCart(); }
     function clearCart() { cart = []; billDiscount = 0; const totalInput = document.getElementById("totalDiscount"); if (totalInput) totalInput.value = 0; renderCart(); }
     function saveBill(print = false) {
-      if (currentUser.role === "Cashier" && !hasAttendanceToday(currentUser.username)) return toast("Mark attendance before billing.");
+      if (currentUser.role === "Cashier" && !hasWorkAttendanceToday(currentUser.username)) return toast("Mark attendance before billing.");
       const customerName = document.getElementById("customerName").value.trim();
       const customerPhone = document.getElementById("customerPhone").value.trim();
       if (!customerName || !/^\d{11}$/.test(customerPhone)) return toast("Customer name and 11 digit phone number are required.");
@@ -2369,6 +2412,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function hasAttendanceToday(username) {
       return state.attendance.some(a => a.username === username && a.date === todayKey());
     }
+    function hasWorkAttendanceToday(username) {
+      return state.attendance.some(a => a.username === username && a.date === todayKey() && a.status !== "Absent");
+    }
     function todayAttendance(username) {
       return state.attendance.slice().reverse().find(a => a.username === username && a.date === todayKey());
     }
@@ -2379,14 +2425,16 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       return state.dayClosings.some(d => d.date === todayKey() && d.status === "Closed");
     }
     function attendanceRequired() {
-      return currentUser?.role === "Cashier" && !isTodayClosed() && !hasAttendanceToday(currentUser.username);
+      return currentUser?.role === "Cashier" && !isTodayClosed() && !hasWorkAttendanceToday(currentUser.username);
     }
     function markOutRequired() {
       const record = currentUser?.role === "Cashier" ? openAttendanceToday(currentUser.username) : null;
       return Boolean(record && !record.outTime);
     }
     function renderAttendance() {
-      const monthRows = state.attendance.filter(a => a.date.slice(0, 7) === monthKey());
+      const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
+      sessionStorage.setItem("bp-pos-attendance-month", selectedMonth);
+      const report = buildMonthlyAttendanceReport(selectedMonth);
       const needsMark = attendanceRequired();
       const needsOut = markOutRequired();
       const cashierName = currentUser?.username || "User";
@@ -2401,26 +2449,72 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <div class="form-grid" style="margin-top:10px">
             <div class="field wide"><label>Person Name</label><input id="attendancePersonName" placeholder="Enter person name" onkeydown="attendanceNameKey(event)"></div>
             <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()">Mark Present</button></div>
+            <div class="field"><label>&nbsp;</label><button class="btn danger" onclick="markAbsent()">Mark Absent</button></div>
             <div class="field"><label>&nbsp;</label><button class="btn light" onclick="markOutAttendance()" ${needsOut ? "" : "disabled"}>Mark Out</button></div>
           </div>
         </div>
         ${needsMark ? `<div class="alert">Please type the person name and click Mark Present first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Attendance stays ready so another person can be marked present whenever this tab is opened.</p>`}
-        <div class="table-wrap"><table><thead><tr><th>Date</th><th>User</th><th>Role</th><th>In Time</th><th>Out Time</th><th>Status</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>
-        ${monthRows.slice().reverse().map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No attendance for this month.</td></tr>`}
+        <div class="attendance-month-bar">
+          <div class="field"><label>Monthly Report</label><input id="attendanceMonth" type="month" value="${selectedMonth}" onchange="renderAttendance()"></div>
+          <button class="btn light" onclick="exportCSV('attendance')">Export Monthly Attendance</button>
+        </div>
+        <div class="attendance-report-head">
+          ${attendanceReportCard("Present", report.summary.present)}
+          ${attendanceReportCard("Absent", report.summary.absent)}
+          ${attendanceReportCard("Completed", report.summary.completed)}
+          ${attendanceReportCard("No Record", report.summary.none)}
+        </div>
+        <div class="table-wrap attendance-table"><table><thead><tr><th>Date</th><th>Cashier</th><th>Name</th><th>Role</th><th>In Time</th><th>Out Time</th><th>Status</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>
+        ${report.rows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 8 : 7}">No attendance rows for this month.</td></tr>`}
         </tbody></table></div>
-        <button class="btn light" style="margin-top:14px" onclick="exportCSV('attendance')">Export Attendance to Excel</button>
       </div>`;
       setTimeout(() => document.getElementById("attendancePersonName")?.focus(), 50);
     }
+    function attendanceReportCard(label, value) {
+      return `<div class="attendance-report-card"><small>${label}</small><strong>${value}</strong></div>`;
+    }
+    function buildMonthlyAttendanceReport(selectedMonth = monthKey()) {
+      const [year, month] = selectedMonth.split("-").map(Number);
+      const days = new Date(year, month, 0).getDate();
+      const today = todayKey();
+      const cashiers = state.users.filter(user => user.role === "Cashier").map(user => user.username);
+      state.attendance.forEach(record => {
+        if (record.date?.slice(0, 7) === selectedMonth && record.username && !cashiers.includes(record.username)) cashiers.push(record.username);
+      });
+      const rows = [];
+      const summary = { present: 0, absent: 0, completed: 0, none: 0 };
+      for (let day = 1; day <= days; day++) {
+        const date = `${selectedMonth}-${String(day).padStart(2, "0")}`;
+        if (date > today) continue;
+        cashiers.forEach(username => {
+          const records = state.attendance.filter(record => record.username === username && record.date === date);
+          if (!records.length) {
+            rows.push({ id: "", date, username, name: "-", role: "Cashier", time: "-", outTime: "-", status: "No Record", virtual: true });
+            summary.none++;
+            return;
+          }
+          records.forEach(record => {
+            rows.push(record);
+            if (record.status === "Absent") summary.absent++;
+            else if (record.outTime || record.status === "Completed") summary.completed++;
+            else summary.present++;
+          });
+        });
+      }
+      return { rows: rows.reverse(), summary };
+    }
     function attendanceRow(record, canManage) {
+      const status = record.status === "No Record" ? "No Record" : record.outTime ? "Completed" : record.status;
+      const badgeClass = status === "Completed" || status === "Present" ? "good" : "warn";
       return `<tr>
         <td>${record.date}</td>
+        <td><strong>${record.username || "-"}</strong></td>
         <td><strong>${record.name || record.username}</strong></td>
         <td>${record.role}</td>
         <td>${record.time || "-"}</td>
         <td>${record.outTime || "-"}</td>
-        <td><span class="badge ${record.outTime || record.status === "Completed" ? "good" : "warn"}">${record.outTime ? "Completed" : record.status}</span></td>
-        ${canManage ? `<td><button class="btn light" onclick="openAttendanceModal('${record.id}')">Edit</button> <button class="btn danger" onclick="deleteAttendance('${record.id}')">Delete</button></td>` : ""}
+        <td><span class="badge ${badgeClass}">${status}</span></td>
+        ${canManage ? `<td>${record.virtual ? `<span class="muted">No action</span>` : `<button class="btn light" onclick="openAttendanceModal('${record.id}')">Edit</button> <button class="btn danger" onclick="deleteAttendance('${record.id}')">Delete</button>`}</td>` : ""}
       </tr>`;
     }
     function markAttendance() {
@@ -2435,6 +2529,19 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       renderNav();
       renderAttendance();
       toast(`${personName} marked present.`);
+    }
+    function markAbsent() {
+      const personName = document.getElementById("attendancePersonName")?.value.trim();
+      if (!personName) {
+        toast("Enter person name first.");
+        document.getElementById("attendancePersonName")?.focus();
+        return;
+      }
+      state.attendance.push({ id: uid("a"), date: todayKey(), username: currentUser.username, name: personName, role: currentUser.role, time: "", outTime: "", status: "Absent" });
+      save();
+      renderNav();
+      renderAttendance();
+      toast(`${personName} marked absent.`);
     }
     function attendanceNameKey(event) {
       if (event.key !== "Enter") return;
@@ -2453,6 +2560,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div class="section-title"><h3>Edit Attendance</h3><button class="btn light icon" onclick="closeModal()">x</button></div>
         <form id="attendanceEditForm" class="form-grid">
           <div class="field wide"><label>Cashier</label><select id="attendanceUser">${cashierUsers.map(user => `<option value="${user.username}" ${record.username === user.username ? "selected" : ""}>${user.username}</option>`).join("")}</select></div>
+          ${field("Person Name", "attendancePerson", record.name || record.username)}
           ${field("Date", "attendanceDate", record.date, "date")}
           ${field("In Time", "attendanceIn", record.time || "", "text")}
           ${field("Out Time", "attendanceOut", record.outTime || "", "text")}
@@ -2470,23 +2578,24 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!record) return toast("Attendance record not found.");
       const message = document.getElementById("attendanceFormMessage");
       const username = document.getElementById("attendanceUser").value.trim();
+      const personName = document.getElementById("attendancePerson").value.trim();
       const date = document.getElementById("attendanceDate").value;
       const inTime = document.getElementById("attendanceIn").value.trim();
       const outTime = document.getElementById("attendanceOut").value.trim();
       const status = document.getElementById("attendanceStatus").value;
-      if (!username || !date || !inTime) {
-        message.textContent = "Cashier, date, and in time are required.";
+      if (!username || !personName || !date || (status !== "Absent" && !inTime)) {
+        message.textContent = "Cashier, person name, date, and in time are required unless status is Absent.";
         message.classList.remove("hidden");
         return;
       }
       const cashier = state.users.find(user => user.username === username);
       record.username = username;
-      record.name = username;
+      record.name = personName;
       record.role = cashier?.role || "Cashier";
       record.date = date;
       record.time = inTime;
       record.outTime = outTime;
-      record.status = outTime ? "Completed" : status;
+      record.status = status === "Absent" ? "Absent" : outTime ? "Completed" : status;
       if (outTime && !record.outAt) record.outAt = new Date().toISOString();
       if (!outTime) delete record.outAt;
       save();
@@ -2772,7 +2881,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       let rows = [];
       if (type === "inventory") rows = [["Name","Barcode","Category","Price","Stock","Discount","Remarks"], ...state.products.map(p => [p.name,p.barcode,p.category,p.price,p.stock,p.discount,p.remarks])];
       if (type === "bills") rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Bank","Discount","Total"], ...state.bills.map(b => [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,b.bankRef,billTotals(b).discount,billTotals(b).total])];
-      if (type === "attendance") rows = [["Date","User","Role","In Time","Out Time","Status"], ...state.attendance.map(a => [a.date,a.username,a.role,a.time,a.outTime || "",a.status])];
+      if (type === "attendance") {
+        const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
+        const report = buildMonthlyAttendanceReport(selectedMonth);
+        rows = [["Date","Cashier","Name","Role","In Time","Out Time","Status"], ...report.rows.slice().reverse().map(a => [a.date,a.username,a.name || a.username,a.role,a.time || "",a.outTime || "",a.status])];
+      }
       const csv = rows.map(r => r.map(v => `"${String(v ?? "").replaceAll('"','""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
       const a = document.createElement("a");
