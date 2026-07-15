@@ -1899,6 +1899,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       clearTimeout(cloudSaveTimer);
       cloudSaveTimer = setTimeout(() => pushCloudState(), 700);
     }
+    function normalizeSettings() {
+      state.settings = { ...seed.settings, ...(state.settings || {}) };
+      if (state.settings.address === undefined) state.settings.address = "";
+    }
     function normalizeInventoryCategories() {
       const replacements = {
         Fashion: "MEN'S",
@@ -2004,6 +2008,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
 
     function init() {
+      normalizeSettings();
       normalizeInventoryCategories();
       normalizeUserPermissions();
       normalizeAttendanceRecords();
@@ -2014,6 +2019,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       else document.getElementById("username").focus();
       pullCloudState(false).then(loaded => {
         if (!loaded) return;
+        normalizeSettings();
         normalizeInventoryCategories();
         normalizeUserPermissions();
         normalizeAttendanceRecords();
@@ -2100,6 +2106,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state;
         await pushCloudState();
       }
+      normalizeSettings();
       normalizeInventoryCategories();
       normalizeUserPermissions();
       normalizeAttendanceRecords();
@@ -2363,6 +2370,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function field(label, id, value = "", type = "text", attrs = "") {
       return `<div class="field"><label>${label}</label><input id="${id}" type="${type}" value="${value ?? ""}" ${attrs}></div>`;
     }
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char]));
+    }
     function saveProduct(e) {
       e.preventDefault();
       const message = document.getElementById("productFormMessage");
@@ -2620,10 +2630,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function printReceipt(bill) {
       const settings = state.settings;
       const t = billTotals(bill);
+      const receiptAddress = escapeHtml(settings.address || "").replace(/\n/g, "<br>");
       const receiptHtml = copy => `<div class="receipt">
         ${settings.logo ? `<img src="${settings.logo}">` : ""}
         <h1>${settings.shopName}</h1>
-        <div class="center">${settings.phone}${settings.address ? `<br>${settings.address}` : ""}<br><span class="copy-title">${copy}</span></div>
+        <div class="center">${settings.phone}${receiptAddress ? `<br>${receiptAddress}` : ""}<br><span class="copy-title">${copy}</span></div>
         <div class="line"></div>
         <div class="receipt-meta">
           <div><span>Bill</span><strong>${bill.id}</strong></div>
@@ -3330,7 +3341,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <div class="settings-preview-logo">${state.settings.logo ? `<img src="${state.settings.logo}">` : "BP"}</div>
             <h3>${state.settings.shopName}</h3>
             <p>${state.settings.phone}</p>
-            <p>${state.settings.address || "Store address"}</p>
+            <p>${escapeHtml(state.settings.address || "Store address").replace(/\n/g, "<br>")}</p>
           </div>
           <div class="receipt-preview">
             <strong>Receipt Footer</strong>
@@ -3343,7 +3354,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <div class="settings-form-grid">
               ${field("Shop Name", "setShop", state.settings.shopName)}
               ${field("Phone Number", "setPhone", state.settings.phone, "tel")}
-              <div class="field full"><label>Store Address</label><input id="setAddress" value="${state.settings.address || ""}" placeholder="Enter store address"></div>
+              <div class="field full"><label>Store Address</label><textarea id="setAddress" rows="3" placeholder="Enter full store address">${escapeHtml(state.settings.address || "")}</textarea></div>
               <div class="field full"><label>Receipt Footer</label><input id="setFooter" value="${state.settings.receiptFooter}"></div>
               <div class="field"><label>Receipt Settings</label><select id="setAutoPrint"><option value="false">Manual Print</option><option value="true">Auto Print</option></select></div>
               <div class="field"><label>Upload Logo</label><input id="setLogo" type="file" accept="image/*"></div>
