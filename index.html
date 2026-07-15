@@ -2431,6 +2431,30 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const record = currentUser?.role === "Cashier" ? openAttendanceToday(currentUser.username) : null;
       return Boolean(record && !record.outTime);
     }
+    function attendanceStaffOptions() {
+      const staff = [];
+      const seen = new Set();
+      const addStaff = (name, username = name, role = "Cashier") => {
+        const cleanName = String(name || "").trim();
+        if (!cleanName || seen.has(cleanName.toLowerCase())) return;
+        seen.add(cleanName.toLowerCase());
+        staff.push({ name: cleanName, username: String(username || cleanName).trim(), role });
+      };
+      state.users.filter(user => user.role === "Cashier").forEach(user => addStaff(user.username, user.username, user.role));
+      state.attendance.forEach(record => addStaff(record.name || record.username, record.staffUsername || record.username, record.role || "Cashier"));
+      if (currentUser?.role === "Cashier") addStaff(currentUser.username, currentUser.username, currentUser.role);
+      return staff.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    function selectedAttendanceStaff() {
+      const select = document.getElementById("attendancePersonSelect");
+      const option = select?.options[select.selectedIndex];
+      if (!select?.value) return null;
+      return {
+        name: select.value,
+        username: option?.dataset.username || select.value,
+        role: option?.dataset.role || "Cashier"
+      };
+    }
     function renderAttendance() {
       const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
       sessionStorage.setItem("bp-pos-attendance-month", selectedMonth);
@@ -2440,20 +2464,24 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const cashierName = currentUser?.username || "User";
       const currentRecord = todayAttendance(cashierName);
       const canManage = currentUser?.role === "Owner";
+      const staffOptions = attendanceStaffOptions();
+      const selectedStaff = sessionStorage.getItem("bp-pos-selected-staff") || currentRecord?.name || staffOptions[0]?.name || "";
       document.getElementById("attendance").innerHTML = `<div class="card">
         <div class="section-title"><h3>Attendance</h3><span class="badge ${needsOut ? "warn" : "good"}">${needsOut ? "Open Attendance" : "Ready"}</span></div>
         <div class="attendance-user-card">
           <small>${needsMark ? "Mark attendance first" : "Mark another attendance"}</small>
           <strong>${cashierName}</strong>
-          <span>${currentRecord ? `Last in: ${currentRecord.name || currentRecord.username} at ${currentRecord.time}${currentRecord.outTime ? ` - out ${currentRecord.outTime}` : ""}` : "Type person name and mark present"}</span>
+          <span>${currentRecord ? `Last in: ${currentRecord.name || currentRecord.username} at ${currentRecord.time || "Absent"}${currentRecord.outTime ? ` - out ${currentRecord.outTime}` : ""}` : "Select staff person and mark attendance"}</span>
           <div class="form-grid" style="margin-top:10px">
-            <div class="field wide"><label>Person Name</label><input id="attendancePersonName" placeholder="Enter person name" onkeydown="attendanceNameKey(event)"></div>
+            <div class="field wide"><label>Staff Person</label><select id="attendancePersonSelect" onchange="sessionStorage.setItem('bp-pos-selected-staff', this.value)" onkeydown="attendanceNameKey(event)">
+              ${staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}" ${staff.name === selectedStaff ? "selected" : ""}>${staff.name}</option>`).join("")}
+            </select></div>
             <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()">Mark Present</button></div>
             <div class="field"><label>&nbsp;</label><button class="btn danger" onclick="markAbsent()">Mark Absent</button></div>
             <div class="field"><label>&nbsp;</label><button class="btn light" onclick="markOutAttendance()" ${needsOut ? "" : "disabled"}>Mark Out</button></div>
           </div>
         </div>
-        ${needsMark ? `<div class="alert">Please type the person name and click Mark Present first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Attendance stays ready so another person can be marked present whenever this tab is opened.</p>`}
+        ${needsMark ? `<div class="alert">Please select the staff person and click Mark Present first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Attendance stays ready so another staff person can be marked whenever this tab is opened.</p>`}
         <div class="attendance-month-bar">
           <div class="field"><label>Monthly Report</label><input id="attendanceMonth" type="month" value="${selectedMonth}" onchange="renderAttendance()"></div>
           <button class="btn light" onclick="exportCSV('attendance')">Export Monthly Attendance</button>
@@ -2468,7 +2496,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         ${report.rows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No attendance rows for this month.</td></tr>`}
         </tbody></table></div>
       </div>`;
-      setTimeout(() => document.getElementById("attendancePersonName")?.focus(), 50);
+      setTimeout(() => document.getElementById("attendancePersonSelect")?.focus(), 50);
     }
     function attendanceReportCard(label, value) {
       return `<div class="attendance-report-card"><small>${label}</small><strong>${value}</strong></div>`;
@@ -2477,9 +2505,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const [year, month] = selectedMonth.split("-").map(Number);
       const days = new Date(year, month, 0).getDate();
       const today = todayKey();
-      const cashiers = state.users.filter(user => user.role === "Cashier").map(user => user.username);
+      const cashiers = attendanceStaffOptions().map(staff => staff.name);
       state.attendance.forEach(record => {
-        if (record.date?.slice(0, 7) === selectedMonth && record.username && !cashiers.includes(record.username)) cashiers.push(record.username);
+        const staffName = record.name || record.username;
+        if (record.date?.slice(0, 7) === selectedMonth && staffName && !cashiers.includes(staffName)) cashiers.push(staffName);
       });
       const rows = [];
       const summary = { present: 0, absent: 0, completed: 0, none: 0 };
@@ -2487,7 +2516,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         const date = `${selectedMonth}-${String(day).padStart(2, "0")}`;
         if (date > today) continue;
         cashiers.forEach(username => {
-          const records = state.attendance.filter(record => record.username === username && record.date === date);
+          const records = state.attendance.filter(record => (record.name || record.username) === username && record.date === date);
           if (!records.length) {
             rows.push({ id: "", date, username, name: username, role: "Cashier", time: "-", outTime: "-", status: "No Record", virtual: true });
             summary.none++;
@@ -2517,30 +2546,32 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       </tr>`;
     }
     function markAttendance() {
-      const personName = document.getElementById("attendancePersonName")?.value.trim();
-      if (!personName) {
-        toast("Enter person name first.");
-        document.getElementById("attendancePersonName")?.focus();
+      const staff = selectedAttendanceStaff();
+      if (!staff) {
+        toast("Select staff person first.");
+        document.getElementById("attendancePersonSelect")?.focus();
         return;
       }
-      state.attendance.push({ id: uid("a"), date: todayKey(), username: currentUser.username, name: personName, role: currentUser.role, time: new Date().toLocaleTimeString(), status: "Present" });
+      sessionStorage.setItem("bp-pos-selected-staff", staff.name);
+      state.attendance.push({ id: uid("a"), date: todayKey(), username: currentUser.username, staffUsername: staff.username, name: staff.name, role: staff.role, time: new Date().toLocaleTimeString(), status: "Present", markedBy: currentUser.username });
       save();
       renderNav();
       renderAttendance();
-      toast(`${personName} marked present.`);
+      toast(`${staff.name} marked present.`);
     }
     function markAbsent() {
-      const personName = document.getElementById("attendancePersonName")?.value.trim();
-      if (!personName) {
-        toast("Enter person name first.");
-        document.getElementById("attendancePersonName")?.focus();
+      const staff = selectedAttendanceStaff();
+      if (!staff) {
+        toast("Select staff person first.");
+        document.getElementById("attendancePersonSelect")?.focus();
         return;
       }
-      state.attendance.push({ id: uid("a"), date: todayKey(), username: currentUser.username, name: personName, role: currentUser.role, time: "", outTime: "", status: "Absent" });
+      sessionStorage.setItem("bp-pos-selected-staff", staff.name);
+      state.attendance.push({ id: uid("a"), date: todayKey(), username: currentUser.username, staffUsername: staff.username, name: staff.name, role: staff.role, time: "", outTime: "", status: "Absent", markedBy: currentUser.username });
       save();
       renderNav();
       renderAttendance();
-      toast(`${personName} marked absent.`);
+      toast(`${staff.name} marked absent.`);
     }
     function attendanceNameKey(event) {
       if (event.key !== "Enter") return;
