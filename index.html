@@ -1184,6 +1184,51 @@
       font-size: 13px;
     }
     .receipt-preview strong { display: block; color: var(--blue); margin-bottom: 5px; }
+    .footer-editor {
+      grid-column: 1 / -1;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background:
+        radial-gradient(circle at 92% 12%, rgba(255,122,26,0.10), transparent 30%),
+        #fbfdff;
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+      box-shadow: 0 12px 28px rgba(8,40,76,0.06);
+    }
+    .footer-editor-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .footer-editor-head strong {
+      display: block;
+      color: var(--blue);
+      font-size: 18px;
+    }
+    .footer-editor-head span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .footer-editor textarea {
+      min-height: 112px;
+      resize: vertical;
+      background: #fff;
+    }
+    .footer-options {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+    .footer-template-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .settings-form-card {
       padding: 0;
       overflow: hidden;
@@ -1631,6 +1676,7 @@
       .settings-grid .full { grid-column: auto; }
       .settings-form-grid { grid-template-columns: 1fr; }
       .settings-form-grid .full { grid-column: auto; }
+      .footer-options { grid-template-columns: 1fr; }
       .settings-actions { justify-content: stretch; }
       .settings-actions .btn { width: 100%; }
       .bill-form, .cart-controls { grid-template-columns: 1fr; }
@@ -1799,6 +1845,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         address: "",
         email: "",
         receiptFooter: "Thank you for shopping with us",
+        receiptFooterAlign: "center",
+        receiptFooterDivider: true,
+        receiptFooterEnabled: true,
         autoPrint: false,
         logo: "",
         cloudMode: false
@@ -1904,6 +1953,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       state.settings = { ...seed.settings, ...(state.settings || {}) };
       if (state.settings.address === undefined) state.settings.address = "";
       if (state.settings.email === undefined) state.settings.email = "";
+      if (state.settings.receiptFooterAlign === undefined) state.settings.receiptFooterAlign = "center";
+      if (state.settings.receiptFooterDivider === undefined) state.settings.receiptFooterDivider = true;
+      if (state.settings.receiptFooterEnabled === undefined) state.settings.receiptFooterEnabled = true;
     }
     function normalizeInventoryCategories() {
       const replacements = {
@@ -2634,6 +2686,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const t = billTotals(bill);
       const receiptAddress = escapeHtml(settings.address || "").replace(/\n/g, "<br>");
       const receiptEmail = escapeHtml(settings.email || "");
+      const footerAlign = ["left", "center", "right"].includes(settings.receiptFooterAlign) ? settings.receiptFooterAlign : "center";
+      const footerText = escapeHtml(settings.receiptFooter || "").replace(/\n/g, "<br>");
+      const footerHtml = settings.receiptFooterEnabled === false || !footerText ? "" : `${settings.receiptFooterDivider === false ? "" : `<div class="line"></div>`}<div style="text-align:${footerAlign}">${footerText}</div>`;
       const receiptHtml = copy => `<div class="receipt">
         ${settings.logo ? `<img src="${settings.logo}">` : ""}
         <h1>${settings.shopName}</h1>
@@ -2660,7 +2715,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         </div>
         <div class="line"></div>
         <div class="receipt-meta"><div><span>Payment</span><strong>${bill.paymentMethod} ${bill.bankRef || ""}</strong></div></div>
-        <div class="line"></div><div class="center">${settings.receiptFooter}</div>
+        ${footerHtml}
       </div>`;
       const copies = `${receiptHtml("Cashier Copy")}<div class="copy-separator"><span>Cut Here</span></div>${receiptHtml("Customer Copy")}`;
       printThermalReceipt(copies);
@@ -3349,7 +3404,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           </div>
           <div class="receipt-preview">
             <strong>Receipt Footer</strong>
-            <span>${state.settings.receiptFooter}</span>
+            <span style="display:block;text-align:${state.settings.receiptFooterAlign || "center"}">${state.settings.receiptFooterEnabled === false ? "Footer disabled" : escapeHtml(state.settings.receiptFooter || "").replace(/\n/g, "<br>")}</span>
           </div>
         </div>
         <div class="card settings-form-card">
@@ -3360,7 +3415,23 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               ${field("Phone Number", "setPhone", state.settings.phone, "tel")}
               ${field("Store Email", "setEmail", escapeHtml(state.settings.email || ""), "email")}
               <div class="field full"><label>Store Address</label><textarea id="setAddress" rows="3" placeholder="Enter full store address">${escapeHtml(state.settings.address || "")}</textarea></div>
-              <div class="field full"><label>Receipt Footer</label><input id="setFooter" value="${state.settings.receiptFooter}"></div>
+              <div class="footer-editor">
+                <div class="footer-editor-head">
+                  <div><strong>Receipt Footer</strong><span>Customize the message printed at the bottom of every receipt</span></div>
+                  <span class="badge">80mm footer</span>
+                </div>
+                <div class="field full"><label>Footer Text</label><textarea id="setFooter" rows="4" placeholder="Write receipt footer, exchange policy, thank you note">${escapeHtml(state.settings.receiptFooter || "")}</textarea></div>
+                <div class="footer-options">
+                  <div class="field"><label>Footer Alignment</label><select id="setFooterAlign"><option value="center">Center</option><option value="left">Left</option><option value="right">Right</option></select></div>
+                  <div class="field"><label>Footer Divider</label><select id="setFooterDivider"><option value="true">Show Line</option><option value="false">No Line</option></select></div>
+                  <div class="field"><label>Footer Status</label><select id="setFooterEnabled"><option value="true">Print Footer</option><option value="false">Hide Footer</option></select></div>
+                </div>
+                <div class="footer-template-bar">
+                  <button type="button" class="btn light" onclick="setFooterTemplate('Thank you for shopping with us')">Thank You</button>
+                  <button type="button" class="btn light" onclick="setFooterTemplate('Exchange is allowed within 7 days with the original receipt.')">Exchange Policy</button>
+                  <button type="button" class="btn light" onclick="setFooterTemplate('No refund. Exchange only with original receipt within 7 days.')">No Refund</button>
+                </div>
+              </div>
               <div class="field"><label>Receipt Settings</label><select id="setAutoPrint"><option value="false">Manual Print</option><option value="true">Auto Print</option></select></div>
               <div class="field"><label>Upload Logo</label><input id="setLogo" type="file" accept="image/*"></div>
             </div>
@@ -3369,6 +3440,15 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         </div>
       </div>`;
       document.getElementById("setAutoPrint").value = String(state.settings.autoPrint);
+      document.getElementById("setFooterAlign").value = state.settings.receiptFooterAlign || "center";
+      document.getElementById("setFooterDivider").value = String(state.settings.receiptFooterDivider !== false);
+      document.getElementById("setFooterEnabled").value = String(state.settings.receiptFooterEnabled !== false);
+    }
+    function setFooterTemplate(text) {
+      const footer = document.getElementById("setFooter");
+      if (!footer) return;
+      footer.value = text;
+      footer.focus();
     }
     function saveSettings() {
       const file = document.getElementById("setLogo").files[0];
@@ -3377,7 +3457,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         state.settings.phone = document.getElementById("setPhone").value;
         state.settings.email = document.getElementById("setEmail").value.trim();
         state.settings.address = document.getElementById("setAddress").value.trim();
-        state.settings.receiptFooter = document.getElementById("setFooter").value;
+        state.settings.receiptFooter = document.getElementById("setFooter").value.trim();
+        state.settings.receiptFooterAlign = document.getElementById("setFooterAlign").value;
+        state.settings.receiptFooterDivider = document.getElementById("setFooterDivider").value === "true";
+        state.settings.receiptFooterEnabled = document.getElementById("setFooterEnabled").value === "true";
         state.settings.autoPrint = document.getElementById("setAutoPrint").value === "true";
         if (logo) state.settings.logo = logo;
         save(); toast("Settings saved.");
