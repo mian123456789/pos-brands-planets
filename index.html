@@ -3456,8 +3456,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
                 </div>
                 <div class="field full"><label>Footer Text</label>
                   <div class="footer-writing-box">
-                    <textarea id="setFooter" rows="5" maxlength="220" oninput="updateFooterCounter()" placeholder="Write receipt footer, exchange policy, thank you note">${escapeHtml(state.settings.receiptFooter || "")}</textarea>
-                    <div class="footer-writing-meta"><span>Printed exactly at the bottom of the receipt</span><span id="footerCounter">0 / 220</span></div>
+                    <textarea id="setFooter" rows="5" maxlength="350" oninput="updateFooterCounter()" placeholder="Write receipt footer, exchange policy, thank you note">${escapeHtml(state.settings.receiptFooter || "")}</textarea>
+                    <div class="footer-writing-meta"><span>Printed exactly at the bottom of the receipt</span><span id="footerCounter">0 / 350</span></div>
                   </div>
                 </div>
                 <div class="footer-options">
@@ -3487,7 +3487,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function updateFooterCounter() {
       const footer = document.getElementById("setFooter");
       const counter = document.getElementById("footerCounter");
-      if (footer && counter) counter.textContent = `${footer.value.length} / 220`;
+      if (footer && counter) counter.textContent = `${footer.value.length} / 350`;
     }
     function setFooterTemplate(text) {
       const footer = document.getElementById("setFooter");
