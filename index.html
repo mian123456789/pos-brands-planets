@@ -1797,6 +1797,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         shopName: "Brands Planets",
         phone: "03000000000",
         address: "",
+        email: "",
         receiptFooter: "Thank you for shopping with us",
         autoPrint: false,
         logo: "",
@@ -1902,6 +1903,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function normalizeSettings() {
       state.settings = { ...seed.settings, ...(state.settings || {}) };
       if (state.settings.address === undefined) state.settings.address = "";
+      if (state.settings.email === undefined) state.settings.email = "";
     }
     function normalizeInventoryCategories() {
       const replacements = {
@@ -2631,10 +2633,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const settings = state.settings;
       const t = billTotals(bill);
       const receiptAddress = escapeHtml(settings.address || "").replace(/\n/g, "<br>");
+      const receiptEmail = escapeHtml(settings.email || "");
       const receiptHtml = copy => `<div class="receipt">
         ${settings.logo ? `<img src="${settings.logo}">` : ""}
         <h1>${settings.shopName}</h1>
-        <div class="center">${settings.phone}${receiptAddress ? `<br>${receiptAddress}` : ""}<br><span class="copy-title">${copy}</span></div>
+        <div class="center">${settings.phone}${receiptAddress ? `<br>${receiptAddress}` : ""}${receiptEmail ? `<br>${receiptEmail}` : ""}<br><span class="copy-title">${copy}</span></div>
         <div class="line"></div>
         <div class="receipt-meta">
           <div><span>Bill</span><strong>${bill.id}</strong></div>
@@ -3341,6 +3344,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <div class="settings-preview-logo">${state.settings.logo ? `<img src="${state.settings.logo}">` : "BP"}</div>
             <h3>${state.settings.shopName}</h3>
             <p>${state.settings.phone}</p>
+            <p>${escapeHtml(state.settings.email || "Store email")}</p>
             <p>${escapeHtml(state.settings.address || "Store address").replace(/\n/g, "<br>")}</p>
           </div>
           <div class="receipt-preview">
@@ -3354,6 +3358,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <div class="settings-form-grid">
               ${field("Shop Name", "setShop", state.settings.shopName)}
               ${field("Phone Number", "setPhone", state.settings.phone, "tel")}
+              ${field("Store Email", "setEmail", escapeHtml(state.settings.email || ""), "email")}
               <div class="field full"><label>Store Address</label><textarea id="setAddress" rows="3" placeholder="Enter full store address">${escapeHtml(state.settings.address || "")}</textarea></div>
               <div class="field full"><label>Receipt Footer</label><input id="setFooter" value="${state.settings.receiptFooter}"></div>
               <div class="field"><label>Receipt Settings</label><select id="setAutoPrint"><option value="false">Manual Print</option><option value="true">Auto Print</option></select></div>
@@ -3370,6 +3375,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const finish = logo => {
         state.settings.shopName = document.getElementById("setShop").value;
         state.settings.phone = document.getElementById("setPhone").value;
+        state.settings.email = document.getElementById("setEmail").value.trim();
         state.settings.address = document.getElementById("setAddress").value.trim();
         state.settings.receiptFooter = document.getElementById("setFooter").value;
         state.settings.autoPrint = document.getElementById("setAutoPrint").value === "true";
