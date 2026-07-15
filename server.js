@@ -69,9 +69,59 @@ function serveStatic(req, res) {
   });
 }
 
+async function sendSmsViaProvider({ to, sender, message }) {
+  const smsApiUrl = process.env.SMS_API_URL;
+  if (!smsApiUrl) {
+    return { ok: false, skipped: true, error: "SMS_API_URL is not configured" };
+  }
+
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json"
+  };
+  if (process.env.SMS_API_TOKEN) headers.Authorization = `Bearer ${process.env.SMS_API_TOKEN}`;
+  if (process.env.SMS_API_KEY) headers["x-api-key"] = process.env.SMS_API_KEY;
+
+  const providerPayload = {
+    to,
+    from: process.env.SMS_SENDER || sender || "Brands Planets",
+    sender: process.env.SMS_SENDER || sender || "Brands Planets",
+    message
+  };
+
+  const response = await fetch(smsApiUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(providerPayload)
+  });
+  const providerText = await response.text();
+  if (!response.ok) {
+    throw new Error(`SMS provider failed with status ${response.status}: ${providerText.slice(0, 200)}`);
+  }
+  return { ok: true, status: response.status };
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     return sendJson(res, 204, {});
+  }
+
+  if (req.url.split("?")[0] === "/api/send-sms") {
+    if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed" });
+
+    try {
+      const payload = JSON.parse(await readRequestBody(req));
+      const to = String(payload.to || payload.phone || "").trim();
+      const sender = String(payload.sender || "Brands Planets").trim();
+      const message = String(payload.message || "").trim();
+      if (!to || !message) return sendJson(res, 400, { error: "Phone number and message are required" });
+
+      const result = await sendSmsViaProvider({ to, sender, message });
+      if (result.skipped) return sendJson(res, 501, { error: result.error });
+      return sendJson(res, 200, { ok: true });
+    } catch (error) {
+      return sendJson(res, 500, { error: error.message });
+    }
   }
 
   if (req.url.split("?")[0] === "/api/state") {
