@@ -1300,19 +1300,45 @@
     .notice { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
     .receipt {
       width: 80mm;
+      box-sizing: border-box;
       background: #fff;
       color: #000;
-      padding: 6mm;
+      padding: 4mm;
       font-family: "Arial", sans-serif;
       font-size: 12px;
+      line-height: 1.35;
+      break-after: page;
+      page-break-after: always;
+    }
+    .receipt:last-child {
+      break-after: auto;
+      page-break-after: auto;
     }
     .receipt h1 { text-align: center; font-size: 17px; margin: 4px 0; }
     .receipt .center { text-align: center; }
+    .receipt .copy-title {
+      display: inline-block;
+      margin-top: 4px;
+      padding: 2px 8px;
+      border: 1px solid #000;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .02em;
+    }
     .receipt .line { border-top: 1px dashed #000; margin: 8px 0; }
-    .receipt table { min-width: 0; border: 0; }
-    .receipt th, .receipt td { border: 0; padding: 3px 0; color: #000; background: #fff; font-size: 11px; }
+    .receipt table { width: 100%; min-width: 0; border: 0; table-layout: fixed; border-collapse: collapse; }
+    .receipt th, .receipt td { border: 0; padding: 3px 0; color: #000; background: #fff; font-size: 11px; vertical-align: top; }
+    .receipt th:first-child, .receipt td:first-child { width: 56%; text-align: left; overflow-wrap: anywhere; }
+    .receipt th:nth-child(2), .receipt td:nth-child(2) { width: 13%; text-align: center; }
+    .receipt th:last-child, .receipt td:last-child { width: 31%; text-align: right; }
     .receipt img { max-height: 48px; display: block; margin: 0 auto 4px; }
     .receipt .receipt-meta div { display: flex; justify-content: space-between; gap: 8px; }
+    .receipt .receipt-meta span,
+    .receipt .receipt-meta strong {
+      overflow-wrap: anywhere;
+    }
     .receipt .receipt-total-box {
       width: 62%;
       margin-left: auto;
@@ -1629,9 +1655,24 @@
       th, td { padding: 10px; }
     }
     @media print {
+      html, body {
+        width: 80mm !important;
+        min-width: 80mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+      }
       body * { visibility: hidden !important; }
       #printArea, #printArea * { visibility: visible !important; }
-      #printArea { position: absolute; left: 0; top: 0; width: 80mm; }
+      #printArea {
+        display: block !important;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 80mm;
+        margin: 0;
+        padding: 0;
+      }
       @page { size: 80mm auto; margin: 0; }
     }
 
@@ -2569,7 +2610,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const receiptHtml = copy => `<div class="receipt">
         ${settings.logo ? `<img src="${settings.logo}">` : ""}
         <h1>${settings.shopName}</h1>
-        <div class="center">${settings.phone}<br>${copy}</div>
+        <div class="center">${settings.phone}<br><span class="copy-title">${copy}</span></div>
         <div class="line"></div>
         <div class="receipt-meta">
           <div><span>Bill</span><strong>${bill.id}</strong></div>
@@ -2581,7 +2622,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         </div>
         <div class="line"></div>
         <table><thead><tr><th>Item</th><th>Qty</th><th>Amt</th></tr></thead><tbody>
-        ${bill.items.map(i => `<tr><td>${i.name}<br>${i.discount}% off</td><td>${i.qty}</td><td>${money(i.price * i.qty * (1 - i.discount/100))}</td></tr>`).join("")}
+        ${bill.items.map(i => `<tr><td>${i.name}</td><td>${i.qty}</td><td>${money(i.price * i.qty * (1 - i.discount/100))}</td></tr>`).join("")}
         </tbody></table>
         <div class="line"></div>
         <div class="receipt-total-box">
@@ -2594,9 +2635,18 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div class="receipt-meta"><div><span>Payment</span><strong>${bill.paymentMethod} ${bill.bankRef || ""}</strong></div></div>
         <div class="line"></div><div class="center">${settings.receiptFooter}</div>
       </div>`;
-      document.getElementById("printArea").innerHTML = receiptHtml("Customer Copy") + receiptHtml("Cashier Copy");
-      document.getElementById("printArea").classList.remove("hidden");
-      setTimeout(() => { window.print(); document.getElementById("printArea").classList.add("hidden"); }, 120);
+      const printArea = document.getElementById("printArea");
+      printArea.innerHTML = receiptHtml("Customer Copy") + receiptHtml("Cashier Copy");
+      printArea.classList.remove("hidden");
+      const finishPrint = () => {
+        printArea.classList.add("hidden");
+        window.removeEventListener("afterprint", finishPrint);
+      };
+      window.addEventListener("afterprint", finishPrint);
+      setTimeout(() => {
+        window.print();
+        setTimeout(finishPrint, 15000);
+      }, 120);
     }
 
     function renderReports() {
