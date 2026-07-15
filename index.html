@@ -1186,12 +1186,12 @@
     .receipt-preview strong { display: block; color: var(--blue); margin-bottom: 5px; }
     .footer-editor {
       grid-column: 1 / -1;
-      border: 1px solid var(--line);
-      border-radius: 18px;
+      border: 1px solid #d8e4f1;
+      border-radius: 20px;
       background:
         radial-gradient(circle at 92% 12%, rgba(255,122,26,0.10), transparent 30%),
         #fbfdff;
-      padding: 16px;
+      padding: 18px;
       display: grid;
       gap: 14px;
       box-shadow: 0 12px 28px rgba(8,40,76,0.06);
@@ -1213,10 +1213,44 @@
       font-size: 13px;
       font-weight: 800;
     }
-    .footer-editor textarea {
-      min-height: 112px;
-      resize: vertical;
+    .footer-writing-box {
+      border: 2px solid #d8e4f1;
+      border-radius: 18px;
       background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .footer-writing-box:focus-within {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 5px rgba(255,122,26,0.12);
+    }
+    .footer-editor textarea {
+      min-height: 150px;
+      resize: vertical;
+      background: transparent;
+      border: 0;
+      padding: 6px;
+      font-size: 18px;
+      line-height: 1.6;
+      box-shadow: none;
+    }
+    .footer-editor textarea:focus {
+      outline: 0;
+      box-shadow: none;
+    }
+    .footer-writing-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      border-top: 1px dashed #d8e4f1;
+      padding: 9px 6px 0;
     }
     .footer-options {
       display: grid;
@@ -3420,7 +3454,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
                   <div><strong>Receipt Footer</strong><span>Customize the message printed at the bottom of every receipt</span></div>
                   <span class="badge">80mm footer</span>
                 </div>
-                <div class="field full"><label>Footer Text</label><textarea id="setFooter" rows="4" placeholder="Write receipt footer, exchange policy, thank you note">${escapeHtml(state.settings.receiptFooter || "")}</textarea></div>
+                <div class="field full"><label>Footer Text</label>
+                  <div class="footer-writing-box">
+                    <textarea id="setFooter" rows="5" maxlength="220" oninput="updateFooterCounter()" placeholder="Write receipt footer, exchange policy, thank you note">${escapeHtml(state.settings.receiptFooter || "")}</textarea>
+                    <div class="footer-writing-meta"><span>Printed exactly at the bottom of the receipt</span><span id="footerCounter">0 / 220</span></div>
+                  </div>
+                </div>
                 <div class="footer-options">
                   <div class="field"><label>Footer Alignment</label><select id="setFooterAlign"><option value="center">Center</option><option value="left">Left</option><option value="right">Right</option></select></div>
                   <div class="field"><label>Footer Divider</label><select id="setFooterDivider"><option value="true">Show Line</option><option value="false">No Line</option></select></div>
@@ -3443,11 +3482,18 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       document.getElementById("setFooterAlign").value = state.settings.receiptFooterAlign || "center";
       document.getElementById("setFooterDivider").value = String(state.settings.receiptFooterDivider !== false);
       document.getElementById("setFooterEnabled").value = String(state.settings.receiptFooterEnabled !== false);
+      updateFooterCounter();
+    }
+    function updateFooterCounter() {
+      const footer = document.getElementById("setFooter");
+      const counter = document.getElementById("footerCounter");
+      if (footer && counter) counter.textContent = `${footer.value.length} / 220`;
     }
     function setFooterTemplate(text) {
       const footer = document.getElementById("setFooter");
       if (!footer) return;
       footer.value = text;
+      updateFooterCounter();
       footer.focus();
     }
     function saveSettings() {
