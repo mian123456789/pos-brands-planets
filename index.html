@@ -2952,6 +2952,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
       sessionStorage.setItem("bp-pos-attendance-month", selectedMonth);
       const report = buildMonthlyAttendanceReport(selectedMonth);
+      const attendanceRows = report.rows.filter(record => !record.virtual);
       const needsMark = attendanceRequired();
       const needsOut = markOutRequired();
       const cashierName = currentUser?.username || "User";
@@ -2986,7 +2987,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           ${attendanceReportCard("No Record", report.summary.none)}
         </div>
         <div class="table-wrap attendance-table"><table><thead><tr><th>Date</th><th>Name</th><th>Role</th><th>In Time</th><th>Out Time</th><th>Status</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>
-        ${report.rows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No attendance rows for this month.</td></tr>`}
+        ${attendanceRows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No marked attendance records for this month.</td></tr>`}
         </tbody></table></div>
       </div>`;
       setTimeout(() => document.getElementById("attendancePersonSelect")?.focus(), 50);
@@ -3579,7 +3580,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (type === "attendance") {
         const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
         const report = buildMonthlyAttendanceReport(selectedMonth);
-        rows = [["Date","Name","Role","In Time","Out Time","Status"], ...report.rows.slice().reverse().map(a => [a.date,a.name || a.username,a.role,a.time || "",a.outTime || "",a.status])];
+        rows = [["Date","Name","Role","In Time","Out Time","Status"], ...report.rows.filter(a => !a.virtual).slice().reverse().map(a => [a.date,a.name || a.username,a.role,a.time || "",a.outTime || "",a.status])];
       }
       const csv = rows.map(r => r.map(v => `"${String(v ?? "").replaceAll('"','""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
