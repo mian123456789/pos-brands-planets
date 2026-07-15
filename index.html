@@ -267,9 +267,62 @@
     }
     .staff-hero {
       display: grid;
-      grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.1fr);
+      grid-template-columns: 1fr;
       gap: 16px;
       align-items: stretch;
+    }
+    .staff-add-card {
+      border-color: #dce7f3;
+      background:
+        radial-gradient(circle at 92% 8%, rgba(244,123,32,0.12), transparent 26%),
+        linear-gradient(180deg, #fff, #fbfdff);
+    }
+    .staff-add-layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.7fr) minmax(360px, 1.3fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .staff-command {
+      min-height: 100%;
+      border: 1px solid rgba(13,43,79,0.1);
+      border-radius: 18px;
+      padding: 16px;
+      background:
+        linear-gradient(135deg, rgba(13,43,79,0.96), rgba(28,70,116,0.9)),
+        var(--blue);
+      color: #fff;
+      box-shadow: 0 16px 34px rgba(13,43,79,0.16);
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .staff-command-top {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .staff-command-icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      background: var(--orange);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      font-weight: 900;
+      box-shadow: 0 14px 30px rgba(244,123,32,0.32);
+    }
+    .staff-command-title strong {
+      display: block;
+      font-size: 20px;
+      line-height: 1.15;
+    }
+    .staff-command-title span {
+      color: rgba(255,255,255,0.72);
+      font-size: 13px;
+      font-weight: 800;
     }
     .staff-summary {
       display: grid;
@@ -282,6 +335,11 @@
       background: #fbfdff;
       padding: 14px;
       box-shadow: 0 10px 24px rgba(13,43,79,0.06);
+    }
+    .staff-command .staff-stat {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.14);
+      box-shadow: none;
     }
     .staff-stat small {
       display: block;
@@ -296,12 +354,28 @@
       color: var(--blue);
       font-size: 26px;
     }
+    .staff-command .staff-stat small { color: rgba(255,255,255,0.66); }
+    .staff-command .staff-stat strong { color: #fff; }
     .staff-form {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
+      align-items: end;
+    }
+    .staff-form .field,
+    .staff-form input,
+    .staff-form select {
+      min-width: 0;
+      width: 100%;
     }
     .staff-form .full { grid-column: 1 / -1; }
+    .staff-submit {
+      grid-column: 1 / -1;
+      width: 100%;
+      min-height: 58px;
+      font-size: 18px;
+      margin-top: 2px;
+    }
     .staff-directory {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -1479,7 +1553,7 @@
       .content { padding: 18px; }
       .stats { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
       .two-col, .pos-grid, .day-close-layout, .settings-layout, .store-settings-layout { grid-template-columns: 1fr; }
-      .staff-hero { grid-template-columns: 1fr; }
+      .staff-hero, .staff-add-layout { grid-template-columns: 1fr; }
       .close-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .form-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
       .product-results { max-height: 520px; }
@@ -2950,30 +3024,33 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const roleCount = new Set(staff.map(item => item.role || "Staff")).size;
       document.getElementById("staff").innerHTML = `<div class="staff-shell">
         <div class="staff-hero">
-          <div class="card settings-card">
-            <div class="settings-head">
-              <h3>Staff</h3>
-              <button class="btn light" onclick="showSection('attendance')">Open Attendance</button>
-            </div>
+          <div class="card settings-card staff-add-card">
+            <div class="settings-head"><h3>Add Staff</h3><span class="badge">${staff.length} staff</span></div>
             <div class="settings-body">
-              <div class="staff-summary">
-                ${staffStat("Total Staff", staff.length)}
-                ${staffStat("Present Today", presentToday)}
-                ${staffStat("Absent Today", absentToday)}
-                ${staffStat("Roles", roleCount)}
+              <div class="staff-add-layout">
+                <div class="staff-command">
+                  <div class="staff-command-top">
+                    <div class="staff-command-icon">+</div>
+                    <div class="staff-command-title">
+                      <strong>Staff Roster</strong>
+                      <span>Add team members for attendance</span>
+                    </div>
+                  </div>
+                  <div class="staff-summary">
+                    ${staffStat("Total Staff", staff.length)}
+                    ${staffStat("Present Today", presentToday)}
+                    ${staffStat("Absent Today", absentToday)}
+                    ${staffStat("Roles", roleCount)}
+                  </div>
+                </div>
+                <div class="staff-form">
+                  ${field("Staff Name", "staffName", "")}
+                  <div class="field"><label>Role</label><select id="staffRole"><option>Staff</option><option>Cashier</option><option>Manager</option><option>Sales</option><option>Inventory</option></select></div>
+                  ${field("Phone Number", "staffPhone", "", "tel")}
+                  <div class="field full"><label>Remarks</label><input id="staffRemarks" placeholder="Optional notes"></div>
+                  <button class="btn orange staff-submit" onclick="addStaffMember()">Add Staff</button>
+                </div>
               </div>
-            </div>
-          </div>
-          <div class="card settings-card">
-            <div class="settings-head"><h3>Add Staff</h3><span class="badge">Attendance roster</span></div>
-            <div class="settings-body">
-              <div class="staff-form">
-                ${field("Staff Name", "staffName", "")}
-                <div class="field"><label>Role</label><select id="staffRole"><option>Staff</option><option>Cashier</option><option>Manager</option><option>Sales</option><option>Inventory</option></select></div>
-                ${field("Phone Number", "staffPhone", "", "tel")}
-                <div class="field full"><label>Remarks</label><input id="staffRemarks" placeholder="Optional notes"></div>
-              </div>
-              <button class="btn orange" onclick="addStaffMember()">Add Staff</button>
             </div>
           </div>
         </div>
