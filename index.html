@@ -1799,11 +1799,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         receiptFooter: "Thank you for shopping with us",
         autoPrint: false,
         logo: "",
-        cloudMode: false,
-        smsAuto: true,
-        smsEndpoint: "/api/send-sms",
-        smsSender: "Brands Planets",
-        smsMessage: "Thank you for shopping with Brands Planets."
+        cloudMode: false
       }
     };
 
@@ -1901,13 +1897,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function queueCloudSave() {
       clearTimeout(cloudSaveTimer);
       cloudSaveTimer = setTimeout(() => pushCloudState(), 700);
-    }
-    function normalizeSettings() {
-      state.settings = { ...seed.settings, ...(state.settings || {}) };
-      if (state.settings.smsAuto === undefined) state.settings.smsAuto = true;
-      if (!state.settings.smsEndpoint) state.settings.smsEndpoint = "/api/send-sms";
-      if (!state.settings.smsSender) state.settings.smsSender = "Brands Planets";
-      if (!state.settings.smsMessage) state.settings.smsMessage = "Thank you for shopping with Brands Planets.";
     }
     function normalizeInventoryCategories() {
       const replacements = {
@@ -2014,7 +2003,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
 
     function init() {
-      normalizeSettings();
       normalizeInventoryCategories();
       normalizeUserPermissions();
       normalizeAttendanceRecords();
@@ -2026,7 +2014,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       pullCloudState(false).then(loaded => {
         if (!loaded) return;
         normalizeInventoryCategories();
-        normalizeSettings();
         normalizeUserPermissions();
         normalizeAttendanceRecords();
         normalizeStaffRecords();
@@ -2113,7 +2100,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         await pushCloudState();
       }
       normalizeInventoryCategories();
-      normalizeSettings();
       normalizeUserPermissions();
       normalizeAttendanceRecords();
       normalizeStaffRecords();
@@ -2626,58 +2612,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       save();
       cart = [];
       billDiscount = 0;
-      const shouldPrint = print || state.settings.autoPrint;
-      if (shouldPrint) {
-        printReceipt(bill);
-        sendBillSms(bill);
-      }
+      if (print || state.settings.autoPrint) printReceipt(bill);
       renderBilling();
       toast("Bill saved successfully.");
-    }
-    function smsMessageForBill(bill) {
-      const settings = state.settings || {};
-      const total = money(billTotals(bill).total);
-      const template = settings.smsMessage || "Thank you for shopping with Brands Planets.";
-      return template
-        .replaceAll("{shop}", settings.shopName || "Brands Planets")
-        .replaceAll("{name}", bill.customerName || "Customer")
-        .replaceAll("{bill}", bill.id || "")
-        .replaceAll("{total}", total);
-    }
-    function normalizeSmsPhone(phone) {
-      const digits = String(phone || "").replace(/\D/g, "");
-      if (digits.length === 11 && digits.startsWith("0")) return "+92" + digits.slice(1);
-      if (digits.length === 12 && digits.startsWith("92")) return "+" + digits;
-      return digits;
-    }
-    async function sendBillSms(bill) {
-      const settings = state.settings || {};
-      if (!settings.smsAuto) return;
-      const endpoint = String(settings.smsEndpoint || "").trim();
-      if (!endpoint) {
-        console.warn("SMS endpoint is not configured.");
-        return;
-      }
-      const payload = {
-        to: normalizeSmsPhone(bill.customerPhone),
-        phone: bill.customerPhone,
-        sender: settings.smsSender || settings.shopName || "Brands Planets",
-        message: smsMessageForBill(bill),
-        billId: bill.id,
-        customerName: bill.customerName,
-        total: billTotals(bill).total
-      };
-      try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        if (!response.ok) throw new Error("SMS request failed with status " + response.status);
-        console.info("Customer SMS sent.", payload.to);
-      } catch (error) {
-        console.warn("Customer SMS could not be sent.", error);
-      }
     }
     function printReceipt(bill) {
       const settings = state.settings;
@@ -3401,17 +3338,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               <div class="field full"><label>Receipt Footer</label><input id="setFooter" value="${state.settings.receiptFooter}"></div>
               <div class="field"><label>Receipt Settings</label><select id="setAutoPrint"><option value="false">Manual Print</option><option value="true">Auto Print</option></select></div>
               <div class="field"><label>Upload Logo</label><input id="setLogo" type="file" accept="image/*"></div>
-              <div class="field"><label>Auto SMS After Print</label><select id="setSmsAuto"><option value="true">Enabled</option><option value="false">Disabled</option></select></div>
-              <div class="field"><label>SMS Sender Name</label><input id="setSmsSender" value="${state.settings.smsSender || "Brands Planets"}"></div>
-              <div class="field full"><label>SMS API Endpoint</label><input id="setSmsEndpoint" value="${state.settings.smsEndpoint || "/api/send-sms"}" placeholder="/api/send-sms"></div>
-              <div class="field full"><label>SMS Message</label><input id="setSmsMessage" value="${state.settings.smsMessage || "Thank you for shopping with Brands Planets."}" placeholder="Thank you for shopping with {shop}. Bill {bill}, total {total}"></div>
             </div>
             <div class="settings-actions"><button class="btn orange" onclick="saveSettings()">Save Settings</button></div>
           </div>
         </div>
       </div>`;
       document.getElementById("setAutoPrint").value = String(state.settings.autoPrint);
-      document.getElementById("setSmsAuto").value = String(state.settings.smsAuto !== false);
     }
     function saveSettings() {
       const file = document.getElementById("setLogo").files[0];
@@ -3420,10 +3352,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         state.settings.phone = document.getElementById("setPhone").value;
         state.settings.receiptFooter = document.getElementById("setFooter").value;
         state.settings.autoPrint = document.getElementById("setAutoPrint").value === "true";
-        state.settings.smsAuto = document.getElementById("setSmsAuto").value === "true";
-        state.settings.smsSender = document.getElementById("setSmsSender").value.trim() || "Brands Planets";
-        state.settings.smsEndpoint = document.getElementById("setSmsEndpoint").value.trim();
-        state.settings.smsMessage = document.getElementById("setSmsMessage").value.trim() || "Thank you for shopping with Brands Planets.";
         if (logo) state.settings.logo = logo;
         save(); toast("Settings saved.");
       };
