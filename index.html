@@ -2651,18 +2651,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       printThermalReceipt(copies);
     }
     function printThermalReceipt(receiptMarkup) {
-      const printFrame = document.createElement("iframe");
-      printFrame.title = "Thermal receipt print";
-      printFrame.style.position = "fixed";
-      printFrame.style.right = "0";
-      printFrame.style.bottom = "0";
-      printFrame.style.width = "80mm";
-      printFrame.style.height = "1px";
-      printFrame.style.border = "0";
-      printFrame.style.opacity = "0";
-      document.body.appendChild(printFrame);
-
-      const printDoc = printFrame.contentDocument || printFrame.contentWindow.document;
+      const printWindow = window.open("", "bpReceiptPrint", "width=420,height=720,left=80,top=80");
+      if (!printWindow) {
+        return printReceiptFromCurrentPage(receiptMarkup);
+      }
+      const printDoc = printWindow.document;
       printDoc.open();
       printDoc.write(`<!doctype html>
         <html>
@@ -2674,10 +2667,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             * { box-sizing: border-box; }
             html, body {
               width: 80mm;
+              min-width: 80mm;
               margin: 0;
               padding: 0;
               background: #fff;
               color: #000;
+              font-family: Arial, sans-serif;
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
@@ -2736,24 +2731,35 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         </html>`);
       printDoc.close();
 
-      const cleanup = () => {
-        setTimeout(() => {
-          if (printFrame.parentNode) printFrame.parentNode.removeChild(printFrame);
-        }, 1000);
-      };
       const runPrint = () => {
-        const printWindow = printFrame.contentWindow;
         printWindow.focus();
-        printWindow.addEventListener("afterprint", cleanup, { once: true });
+        printWindow.addEventListener("afterprint", () => printWindow.close(), { once: true });
         printWindow.print();
-        setTimeout(cleanup, 20000);
+        setTimeout(() => {
+          try { printWindow.close(); } catch (error) {}
+        }, 20000);
       };
       const images = Array.from(printDoc.images || []);
       const imageReady = images.map(img => img.complete ? Promise.resolve() : new Promise(resolve => {
         img.onload = resolve;
         img.onerror = resolve;
       }));
-      Promise.all(imageReady).then(() => setTimeout(runPrint, 300));
+      Promise.all(imageReady).then(() => setTimeout(runPrint, 500));
+    }
+    function printReceiptFromCurrentPage(receiptMarkup) {
+      const printArea = document.getElementById("printArea");
+      printArea.innerHTML = receiptMarkup;
+      printArea.classList.remove("hidden");
+      const finishPrint = () => {
+        printArea.classList.add("hidden");
+        printArea.innerHTML = "";
+        window.removeEventListener("afterprint", finishPrint);
+      };
+      window.addEventListener("afterprint", finishPrint);
+      requestAnimationFrame(() => setTimeout(() => {
+        window.print();
+        setTimeout(finishPrint, 15000);
+      }, 150));
     }
 
     function renderReports() {
