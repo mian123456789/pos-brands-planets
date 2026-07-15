@@ -1509,6 +1509,7 @@
         <section id="attendance" class="section"></section>
         <section id="dayclose" class="section"></section>
         <section id="expenses" class="section"></section>
+        <section id="staff" class="section"></section>
         <section id="users" class="section"></section>
         <section id="settings" class="section"></section>
       </div>
@@ -1544,6 +1545,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       ],
       bills: [],
       expenses: [],
+      staff: [
+        { id: "s-cashier", name: "cashier", role: "Cashier", phone: "", remarks: "Default staff" }
+      ],
       attendance: [],
       stockHistory: [],
       dayClosings: [],
@@ -1576,6 +1580,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       reports: "Reports",
       attendance: "Attendance",
       expenses: "Expenses",
+      staff: "Staff",
       inventory: "Inventory",
       dayclose: "Day Close"
     };
@@ -1587,6 +1592,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       ["attendance", "Attendance"],
       ["dayclose", "Day Close"],
       ["expenses", "Expenses"],
+      ["staff", "Staff"],
       ["users", "Manage Users"],
       ["settings", "Settings"]
     ];
@@ -1694,6 +1700,34 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       });
       if (changed) localStorage.setItem("bp-pos-state", JSON.stringify(state));
     }
+    function normalizeStaffRecords() {
+      let changed = false;
+      if (!Array.isArray(state.staff)) {
+        state.staff = [];
+        changed = true;
+      }
+      const seen = new Set(state.staff.map(staff => String(staff.name || "").trim().toLowerCase()).filter(Boolean));
+      const addStaff = (name, role = "Cashier", phone = "", remarks = "") => {
+        const cleanName = String(name || "").trim();
+        if (!cleanName || seen.has(cleanName.toLowerCase())) return;
+        state.staff.push({ id: uid("s"), name: cleanName, role, phone, remarks });
+        seen.add(cleanName.toLowerCase());
+        changed = true;
+      };
+      state.users.filter(user => user.role === "Cashier").forEach(user => addStaff(user.username, "Cashier", "", "Cashier login"));
+      state.attendance.forEach(record => addStaff(record.name || record.username, record.role || "Cashier", "", "From attendance"));
+      state.staff.forEach(staff => {
+        if (!staff.id) {
+          staff.id = uid("s");
+          changed = true;
+        }
+        staff.name = String(staff.name || "").trim();
+        staff.role = staff.role || "Staff";
+        staff.phone = staff.phone || "";
+        staff.remarks = staff.remarks || "";
+      });
+      if (changed) localStorage.setItem("bp-pos-state", JSON.stringify(state));
+    }
     function can(section) {
       if (currentUser?.role === "Owner") return true;
       if (attendanceRequired() && section === "attendance") return true;
@@ -1730,6 +1764,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       normalizeInventoryCategories();
       normalizeUserPermissions();
       normalizeAttendanceRecords();
+      normalizeStaffRecords();
       bindLogin();
       bindGlobal();
       if (currentUser) showApp();
@@ -1739,6 +1774,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         normalizeInventoryCategories();
         normalizeUserPermissions();
         normalizeAttendanceRecords();
+        normalizeStaffRecords();
         if (currentUser && activeSection !== "billing") {
           renderNav();
           render(activeSection);
@@ -1824,6 +1860,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       normalizeInventoryCategories();
       normalizeUserPermissions();
       normalizeAttendanceRecords();
+      normalizeStaffRecords();
       renderNav();
       render(activeSection);
       toast(cloudOnline ? "System synced with Hostinger backend." : "System refreshed locally. Cloud backend unavailable.");
@@ -1868,7 +1905,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (id === "billing") setTimeout(() => document.getElementById("scanInput")?.focus(), 80);
     }
     function render(id) {
-      const map = { dashboard: renderDashboard, inventory: renderInventory, billing: renderBilling, reports: renderReports, attendance: renderAttendance, dayclose: renderDayClose, expenses: renderExpenses, users: renderUsers, settings: renderSettings };
+      const map = { dashboard: renderDashboard, inventory: renderInventory, billing: renderBilling, reports: renderReports, attendance: renderAttendance, dayclose: renderDayClose, expenses: renderExpenses, staff: renderStaff, users: renderUsers, settings: renderSettings };
       map[id]?.();
     }
 
@@ -2440,9 +2477,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         seen.add(cleanName.toLowerCase());
         staff.push({ name: cleanName, username: String(username || cleanName).trim(), role });
       };
-      state.users.filter(user => user.role === "Cashier").forEach(user => addStaff(user.username, user.username, user.role));
+      (state.staff || []).forEach(staffMember => addStaff(staffMember.name, staffMember.name, staffMember.role || "Staff"));
       state.attendance.forEach(record => addStaff(record.name || record.username, record.staffUsername || record.username, record.role || "Cashier"));
-      if (currentUser?.role === "Cashier") addStaff(currentUser.username, currentUser.username, currentUser.role);
+      if (!staff.length && currentUser?.role === "Cashier") addStaff(currentUser.username, currentUser.username, currentUser.role);
       return staff.sort((a, b) => a.name.localeCompare(b.name));
     }
     function selectedAttendanceStaff() {
@@ -2787,6 +2824,85 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       save();
       renderExpenses();
       toast("Expense deleted.");
+    }
+    function renderStaff() {
+      if (!can("staff")) return toast("You do not have permission for staff.");
+      const staff = state.staff || [];
+      document.getElementById("staff").innerHTML = `<div class="settings-layout">
+        <div class="card settings-card">
+          <div class="settings-head"><h3>Add Staff</h3><span class="badge">${staff.length} staff</span></div>
+          <div class="settings-body">
+            <div class="settings-grid">
+              ${field("Staff Name", "staffName", "")}
+              ${field("Role", "staffRole", "Staff")}
+              ${field("Phone Number", "staffPhone", "", "tel")}
+              <div class="field full"><label>Remarks</label><input id="staffRemarks" placeholder="Optional notes"></div>
+            </div>
+            <button class="btn orange" onclick="addStaffMember()">Add Staff</button>
+          </div>
+        </div>
+        <div class="card settings-card">
+          <div class="settings-head"><h3>Staff List</h3><button class="btn light" onclick="showSection('attendance')">Open Attendance</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Phone</th><th>Remarks</th><th>Action</th></tr></thead><tbody>
+            ${staff.map(staffRow).join("") || `<tr><td colspan="5">No staff added yet.</td></tr>`}
+          </tbody></table></div>
+        </div>
+      </div>`;
+    }
+    function staffRow(staff) {
+      return `<tr>
+        <td><strong>${staff.name}</strong></td>
+        <td>${staff.role || "Staff"}</td>
+        <td>${staff.phone || "-"}</td>
+        <td>${staff.remarks || ""}</td>
+        <td><div class="user-actions"><button class="btn light" onclick="editStaffMember('${staff.id}')">Edit</button><button class="btn danger" onclick="deleteStaffMember('${staff.id}')">Delete</button></div></td>
+      </tr>`;
+    }
+    function addStaffMember() {
+      if (!can("staff")) return toast("You do not have permission for staff.");
+      const name = document.getElementById("staffName").value.trim();
+      const role = document.getElementById("staffRole").value.trim() || "Staff";
+      const phone = document.getElementById("staffPhone").value.trim();
+      const remarks = document.getElementById("staffRemarks").value.trim();
+      if (!name) return toast("Staff name is required.");
+      if ((state.staff || []).some(staff => staff.name.toLowerCase() === name.toLowerCase())) return toast("Staff already exists.");
+      state.staff.push({ id: uid("s"), name, role, phone, remarks });
+      save();
+      renderStaff();
+      toast("Staff added.");
+    }
+    function editStaffMember(id) {
+      if (!can("staff")) return toast("You do not have permission for staff.");
+      const staff = state.staff.find(item => item.id === id);
+      if (!staff) return toast("Staff not found.");
+      const name = prompt("Staff name", staff.name || "");
+      if (name === null) return;
+      const role = prompt("Role", staff.role || "Staff");
+      if (role === null) return;
+      const phone = prompt("Phone number", staff.phone || "");
+      if (phone === null) return;
+      const remarks = prompt("Remarks", staff.remarks || "");
+      if (remarks === null) return;
+      const cleanName = name.trim();
+      if (!cleanName) return toast("Staff name is required.");
+      if (state.staff.some(item => item.id !== id && item.name.toLowerCase() === cleanName.toLowerCase())) return toast("Another staff with this name already exists.");
+      staff.name = cleanName;
+      staff.role = role.trim() || "Staff";
+      staff.phone = phone.trim();
+      staff.remarks = remarks.trim();
+      save();
+      renderStaff();
+      toast("Staff updated.");
+    }
+    function deleteStaffMember(id) {
+      if (!can("staff")) return toast("You do not have permission for staff.");
+      const staff = state.staff.find(item => item.id === id);
+      if (!staff) return toast("Staff not found.");
+      if (state.attendance.some(record => (record.name || record.username) === staff.name) && !confirm("This staff has attendance records. Delete staff from list anyway? Reports will keep old attendance records.")) return;
+      state.staff = state.staff.filter(item => item.id !== id);
+      save();
+      renderStaff();
+      toast("Staff deleted.");
     }
     function closeDay() {
       if (!requireOwner()) return;
