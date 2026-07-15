@@ -1796,6 +1796,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       settings: {
         shopName: "Brands Planets",
         phone: "03000000000",
+        address: "",
         receiptFooter: "Thank you for shopping with us",
         autoPrint: false,
         logo: "",
@@ -2622,7 +2623,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const receiptHtml = copy => `<div class="receipt">
         ${settings.logo ? `<img src="${settings.logo}">` : ""}
         <h1>${settings.shopName}</h1>
-        <div class="center">${settings.phone}<br><span class="copy-title">${copy}</span></div>
+        <div class="center">${settings.phone}${settings.address ? `<br>${settings.address}` : ""}<br><span class="copy-title">${copy}</span></div>
         <div class="line"></div>
         <div class="receipt-meta">
           <div><span>Bill</span><strong>${bill.id}</strong></div>
@@ -3329,6 +3330,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <div class="settings-preview-logo">${state.settings.logo ? `<img src="${state.settings.logo}">` : "BP"}</div>
             <h3>${state.settings.shopName}</h3>
             <p>${state.settings.phone}</p>
+            <p>${state.settings.address || "Store address"}</p>
           </div>
           <div class="receipt-preview">
             <strong>Receipt Footer</strong>
@@ -3341,6 +3343,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <div class="settings-form-grid">
               ${field("Shop Name", "setShop", state.settings.shopName)}
               ${field("Phone Number", "setPhone", state.settings.phone, "tel")}
+              <div class="field full"><label>Store Address</label><input id="setAddress" value="${state.settings.address || ""}" placeholder="Enter store address"></div>
               <div class="field full"><label>Receipt Footer</label><input id="setFooter" value="${state.settings.receiptFooter}"></div>
               <div class="field"><label>Receipt Settings</label><select id="setAutoPrint"><option value="false">Manual Print</option><option value="true">Auto Print</option></select></div>
               <div class="field"><label>Upload Logo</label><input id="setLogo" type="file" accept="image/*"></div>
@@ -3356,6 +3359,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const finish = logo => {
         state.settings.shopName = document.getElementById("setShop").value;
         state.settings.phone = document.getElementById("setPhone").value;
+        state.settings.address = document.getElementById("setAddress").value.trim();
         state.settings.receiptFooter = document.getElementById("setFooter").value;
         state.settings.autoPrint = document.getElementById("setAutoPrint").value === "true";
         if (logo) state.settings.logo = logo;
