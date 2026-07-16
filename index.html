@@ -1940,19 +1940,30 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       ["settings", "Settings"]
     ];
 
-    function save() {
+    function save(immediateCloud = false) {
+      state.updatedAt = new Date().toISOString();
       localStorage.setItem("bp-pos-state", JSON.stringify(state));
+      localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
       window.dispatchEvent(new Event("storage-lite"));
-      queueCloudSave();
+      if (immediateCloud) pushCloudState();
+      else queueCloudSave();
     }
-    function mergeState(remoteState) {
+    function mergeState(remoteState, remoteUpdatedAt = "") {
       if (!remoteState || !Array.isArray(remoteState.users) || !Array.isArray(remoteState.products)) return false;
+      const localUpdatedAt = state.updatedAt || localStorage.getItem("bp-pos-local-updated-at") || "";
+      const incomingUpdatedAt = remoteState.updatedAt || remoteUpdatedAt || "";
+      if (localUpdatedAt && incomingUpdatedAt && new Date(incomingUpdatedAt) < new Date(localUpdatedAt)) {
+        pushCloudState();
+        return true;
+      }
       state = {
         ...seed,
         ...remoteState,
+        updatedAt: incomingUpdatedAt || remoteState.updatedAt || new Date().toISOString(),
         settings: { ...seed.settings, ...(remoteState.settings || {}) }
       };
       localStorage.setItem("bp-pos-state", JSON.stringify(state));
+      localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
       return true;
     }
     async function fetchWithTimeout(url, options = {}, timeout = 4500) {
@@ -1970,7 +1981,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         if (!response.ok) throw new Error(`Cloud responded ${response.status}`);
         const payload = await response.json();
         const remoteState = payload.state || payload;
-        if (!mergeState(remoteState)) throw new Error("Cloud state format is invalid");
+        if (!mergeState(remoteState, payload.updatedAt)) throw new Error("Cloud state format is invalid");
         cloudOnline = true;
         if (showMessage) toast("Cloud data loaded from Hostinger.");
         return true;
@@ -1982,13 +1993,15 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     async function pushCloudState() {
       try {
+        state.updatedAt = state.updatedAt || new Date().toISOString();
         const response = await fetchWithTimeout(API_STATE_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ state, updatedAt: new Date().toISOString() })
+          body: JSON.stringify({ state, updatedAt: state.updatedAt })
         });
         if (!response.ok) throw new Error(`Cloud responded ${response.status}`);
         cloudOnline = true;
+        localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
         return true;
       } catch (error) {
         cloudOnline = false;
@@ -2140,7 +2153,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function bindLogin() {
       const lockedUntil = Number(localStorage.getItem("bp-pos-lock") || 0);
-      if (Date.now() < lockedUntil) showLoginMessage("Account locked for 1 minute after 2 wrong attempts.");
+      if (Date.now() < lockedUntil) showLoginMessage("Account locked for 30 seconds after 5 wrong attempts.");
       document.getElementById("passwordToggle").addEventListener("click", () => {
         const passwordInput = document.getElementById("password");
         const showing = passwordInput.type === "text";
@@ -2167,12 +2180,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         if (!user) {
           const attempts = Number(localStorage.getItem("bp-pos-attempts") || 0) + 1;
           localStorage.setItem("bp-pos-attempts", attempts);
-          if (attempts >= 2) {
-            localStorage.setItem("bp-pos-lock", Date.now() + 60000);
+          if (attempts >= 5) {
+            localStorage.setItem("bp-pos-lock", Date.now() + 30000);
             localStorage.setItem("bp-pos-attempts", "0");
-            return showLoginMessage("Account locked for 1 minute after 2 wrong attempts.");
+            return showLoginMessage("Account locked for 30 seconds after 5 wrong attempts.");
           }
-          return showLoginMessage("Invalid username or password. One attempt remaining.");
+          return showLoginMessage(`Invalid username or password. ${5 - attempts} attempts remaining.`);
         }
         localStorage.setItem("bp-pos-attempts", "0");
         localStorage.removeItem("bp-pos-lock");
@@ -2530,7 +2543,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!can("inventory")) return showSectionMessage("inventory", "You do not have permission to delete inventory.");
       if (!confirm("Delete this product?")) return;
       state.products = state.products.filter(p => p.id !== id);
-      save(); renderInventory();
+      save(true); renderInventory();
     }
     function closeModal() { document.getElementById("modalRoot").innerHTML = ""; }
 
@@ -2840,7 +2853,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function deleteBill(id) {
       if (!requireOwner() || !confirm("Delete bill? Stock will not be restored automatically.")) return;
       state.bills = state.bills.filter(b => b.id !== id);
-      save(); renderReports();
+      save(true); renderReports();
     }
 
     function hasAttendanceToday(username) {
@@ -3114,7 +3127,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!requireOwner()) return;
       if (!confirm("Delete this attendance record?")) return;
       state.attendance = state.attendance.filter(record => record.id !== id);
-      save();
+      save(true);
       renderAttendance();
       toast("Attendance deleted.");
     }
@@ -3261,7 +3274,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!expense || !canEditExpense(expense)) return toast("You can delete only your own expenses.");
       if (!confirm("Delete this expense?")) return;
       state.expenses = state.expenses.filter(e => e.id !== id);
-      save();
+      save(true);
       renderExpenses();
       toast("Expense deleted.");
     }
@@ -3387,7 +3400,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!staff) return toast("Staff not found.");
       if (state.attendance.some(record => (record.name || record.username) === staff.name) && !confirm("This staff has attendance records. Delete staff from list anyway? Reports will keep old attendance records.")) return;
       state.staff = state.staff.filter(item => item.id !== id);
-      save();
+      save(true);
       renderStaff();
       toast("Staff deleted.");
     }
@@ -3553,7 +3566,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function removeUser(id) {
       if (!confirm("Delete this cashier?")) return;
       state.users = state.users.filter(u => u.id !== id);
-      save(); renderUsers();
+      save(true); renderUsers();
     }
 
     function exportCSV(type) {
