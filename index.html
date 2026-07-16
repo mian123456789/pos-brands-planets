@@ -1396,6 +1396,10 @@
       page-break-after: auto;
       break-after: auto;
     }
+    .receipt-page + .receipt-page {
+      page-break-before: always;
+      break-before: page;
+    }
     .receipt {
       width: var(--receipt-print-width);
       box-sizing: border-box;
