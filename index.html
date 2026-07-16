@@ -1382,6 +1382,20 @@
       --receipt-print-width: 72.1mm;
       --receipt-page-height: 210mm;
     }
+    .receipt-page {
+      width: 80mm;
+      min-height: 210mm;
+      box-sizing: border-box;
+      background: #fff;
+      color: #000;
+      padding: 0;
+      page-break-after: always;
+      break-after: page;
+    }
+    .receipt-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
     .receipt {
       width: var(--receipt-print-width);
       box-sizing: border-box;
@@ -1394,6 +1408,8 @@
       line-height: 1.35;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
     #printArea {
       display: none;
@@ -1761,9 +1777,9 @@
     }
     @media print {
       html, body {
-        width: var(--receipt-paper-width) !important;
-        min-width: var(--receipt-paper-width) !important;
-        min-height: var(--receipt-page-height) !important;
+        width: 80mm !important;
+        min-width: 80mm !important;
+        min-height: 210mm !important;
         margin: 0 !important;
         padding: 0 !important;
         background: #fff !important;
@@ -1774,8 +1790,8 @@
       #printArea {
         display: block !important;
         position: static !important;
-        width: var(--receipt-paper-width);
-        min-height: var(--receipt-page-height);
+        width: 80mm;
+        min-height: 210mm;
         margin: 0;
         padding: 0;
         background: #fff !important;
@@ -2739,7 +2755,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const footerAlign = ["left", "center", "right"].includes(settings.receiptFooterAlign) ? settings.receiptFooterAlign : "center";
       const footerText = escapeHtml(settings.receiptFooter || "").replace(/\n/g, "<br>");
       const footerHtml = settings.receiptFooterEnabled === false || !footerText ? "" : `${settings.receiptFooterDivider === false ? "" : `<div class="line"></div>`}<div style="text-align:${footerAlign}">${footerText}</div>`;
-      const receiptHtml = copy => `<div class="receipt">
+      const receiptHtml = copy => `<div class="receipt-page"><div class="receipt">
         ${settings.logo ? `<img src="${settings.logo}">` : ""}
         <h1>${settings.shopName}</h1>
         <div class="center">${settings.phone}${receiptAddress ? `<br>${receiptAddress}` : ""}${receiptEmail ? `<br>${receiptEmail}` : ""}<br><span class="copy-title">${copy}</span></div>
@@ -2766,8 +2782,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div class="line"></div>
         <div class="receipt-meta"><div><span>Payment</span><strong>${bill.paymentMethod} ${bill.bankRef || ""}</strong></div></div>
         ${footerHtml}
-      </div>`;
-      const copies = `${receiptHtml("Cashier Copy")}<div class="copy-separator"><span>Cut Here</span></div>${receiptHtml("Customer Copy")}`;
+      </div></div>`;
+      const copies = `${receiptHtml("Cashier Copy")}${receiptHtml("Customer Copy")}`;
       printReceiptFromCurrentPage(copies);
     }
     function printThermalReceipt(receiptMarkup) {
@@ -2785,22 +2801,24 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         img.onerror = resolve;
       }));
       const finishPrint = () => {
-        document.body.classList.remove("receipt-printing");
-        printArea.classList.add("hidden");
-        printArea.style.display = "";
-        printArea.innerHTML = "";
         window.removeEventListener("afterprint", finishPrint);
+        setTimeout(() => {
+          document.body.classList.remove("receipt-printing");
+          printArea.classList.add("hidden");
+          printArea.style.display = "";
+          printArea.innerHTML = "";
+        }, 45000);
       };
       window.addEventListener("afterprint", finishPrint);
       Promise.all(imageReady).then(() => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
         if (document.fonts?.ready) {
           document.fonts.ready.then(() => {
             window.print();
-            setTimeout(finishPrint, 30000);
+            setTimeout(finishPrint, 60000);
           });
         } else {
           window.print();
-          setTimeout(finishPrint, 30000);
+          setTimeout(finishPrint, 60000);
         }
       }, 700))));
     }
