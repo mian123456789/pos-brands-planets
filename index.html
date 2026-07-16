@@ -1377,18 +1377,30 @@
       z-index: 12;
     }
     .notice { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    :root {
+      --receipt-paper-width: 80mm;
+      --receipt-print-width: 72.1mm;
+      --receipt-page-height: 210mm;
+    }
     .receipt {
-      width: 80mm;
+      width: var(--receipt-print-width);
       box-sizing: border-box;
       background: #fff;
       color: #000;
-      padding: 4mm;
+      margin: 0 auto;
+      padding: 2.2mm 0;
       font-family: "Arial", sans-serif;
       font-size: 12px;
       line-height: 1.35;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     #printArea {
       display: none;
+      width: var(--receipt-paper-width);
+      min-height: var(--receipt-page-height);
+      background: #fff;
+      color: #000;
     }
     .receipt h1 { text-align: center; font-size: 17px; margin: 4px 0; }
     .receipt .center { text-align: center; }
@@ -1436,9 +1448,10 @@
       font-size: 13px;
     }
     .copy-separator {
-      width: 80mm;
+      width: var(--receipt-print-width);
       box-sizing: border-box;
-      padding: 3mm 4mm;
+      margin: 0 auto;
+      padding: 3mm 0;
       color: #000;
       background: #fff;
       text-align: center;
@@ -1748,9 +1761,9 @@
     }
     @media print {
       html, body {
-        width: 80mm !important;
-        min-width: 80mm !important;
-        height: auto !important;
+        width: var(--receipt-paper-width) !important;
+        min-width: var(--receipt-paper-width) !important;
+        min-height: var(--receipt-page-height) !important;
         margin: 0 !important;
         padding: 0 !important;
         background: #fff !important;
@@ -1761,11 +1774,14 @@
       #printArea {
         display: block !important;
         position: static !important;
-        width: 80mm;
+        width: var(--receipt-paper-width);
+        min-height: var(--receipt-page-height);
         margin: 0;
         padding: 0;
+        background: #fff !important;
+        color: #000 !important;
       }
-      @page { size: 80mm auto; margin: 0; }
+      @page { size: 80mm 210mm; margin: 0; }
     }
 
   </style>
@@ -2777,8 +2793,15 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       };
       window.addEventListener("afterprint", finishPrint);
       Promise.all(imageReady).then(() => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
-        window.print();
-        setTimeout(finishPrint, 30000);
+        if (document.fonts?.ready) {
+          document.fonts.ready.then(() => {
+            window.print();
+            setTimeout(finishPrint, 30000);
+          });
+        } else {
+          window.print();
+          setTimeout(finishPrint, 30000);
+        }
       }, 700))));
     }
 
