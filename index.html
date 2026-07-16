@@ -2727,11 +2727,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       save();
       cart = [];
       billDiscount = 0;
-      if (print || state.settings.autoPrint) printReceipt(bill);
+      if (print || state.settings.autoPrint) printReceipt(bill, "customer");
       renderBilling();
       toast("Bill saved successfully.");
     }
-    function printReceipt(bill) {
+    function printReceipt(bill, copyType = "customer") {
       const settings = state.settings;
       const t = billTotals(bill);
       const receiptAddress = escapeHtml(settings.address || "").replace(/\n/g, "<br>");
@@ -2767,7 +2767,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div class="receipt-meta"><div><span>Payment</span><strong>${bill.paymentMethod} ${bill.bankRef || ""}</strong></div></div>
         ${footerHtml}
       </div></div>`;
-      const copies = `${receiptHtml("Cashier Copy")}${receiptHtml("Customer Copy")}`;
+      const copies = copyType === "cashier" ? receiptHtml("Cashier Copy") : receiptHtml("Customer Copy");
       printReceiptFromCurrentPage(copies);
     }
     function printThermalReceipt(receiptMarkup) {
@@ -2833,10 +2833,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const q = (document.getElementById("billSearch")?.value || "").toLowerCase();
       const rows = state.bills.filter(b => [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef].join(" ").toLowerCase().includes(q)).slice().reverse();
       document.getElementById("billTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Bill</th><th>Customer</th><th>Cashier</th><th>Payment</th><th>Total</th><th>Actions</th></tr></thead><tbody>
-      ${rows.map(b => `<tr><td>${new Date(b.date).toLocaleString()}</td><td>${b.id}</td><td>${b.customerName}<br>${b.customerPhone}</td><td>${b.cashier}</td><td><span class="badge">${b.saleMode || "In Store"}</span><br>${b.paymentMethod} ${b.bankRef || ""}</td><td>${money(billTotals(b).total)}</td><td><button class="btn light" onclick="printReceiptById('${b.id}')">Reprint</button> ${currentUser.role === "Owner" ? `<button class="btn danger" onclick="deleteBill('${b.id}')">Delete</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="7">No bills found.</td></tr>`}
+      ${rows.map(b => `<tr><td>${new Date(b.date).toLocaleString()}</td><td>${b.id}</td><td>${b.customerName}<br>${b.customerPhone}</td><td>${b.cashier}</td><td><span class="badge">${b.saleMode || "In Store"}</span><br>${b.paymentMethod} ${b.bankRef || ""}</td><td>${money(billTotals(b).total)}</td><td><div class="user-actions"><button class="btn light" onclick="printReceiptById('${b.id}', 'customer')">Customer Copy</button><button class="btn light" onclick="printReceiptById('${b.id}', 'cashier')">Cashier Copy</button>${currentUser.role === "Owner" ? `<button class="btn danger" onclick="deleteBill('${b.id}')">Delete</button>` : ""}</div></td></tr>`).join("") || `<tr><td colspan="7">No bills found.</td></tr>`}
       </tbody></table></div>`;
     }
-    function printReceiptById(id) { const b = state.bills.find(x => x.id === id); if (b) printReceipt(b); }
+    function printReceiptById(id, copyType = "customer") { const b = state.bills.find(x => x.id === id); if (b) printReceipt(b, copyType); }
     function deleteBill(id) {
       if (!requireOwner() || !confirm("Delete bill? Stock will not be restored automatically.")) return;
       state.bills = state.bills.filter(b => b.id !== id);
