@@ -2917,6 +2917,19 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           </div>
         </div>
         ${needsMark ? `<div class="alert">Please select the staff person and click Mark Present first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Attendance stays ready so another staff person can be marked whenever this tab is opened.</p>`}
+        ${canManage ? `<div class="card" style="margin-top:14px">
+          <div class="section-title"><h3>Manual Attendance</h3><span class="badge">Owner</span></div>
+          <div class="form-grid">
+            <div class="field wide"><label>Staff Person</label><select id="manualAttendancePerson">
+              ${staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}">${staff.name}</option>`).join("")}
+            </select></div>
+            ${field("Date", "manualAttendanceDate", todayKey(), "date")}
+            ${field("In Time", "manualAttendanceIn", "", "time")}
+            ${field("Out Time", "manualAttendanceOut", "", "time")}
+            <div class="field"><label>Status</label><select id="manualAttendanceStatus">${["Present", "Completed", "Absent", "Late"].map(status => `<option>${status}</option>`).join("")}</select></div>
+            <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="addManualAttendance()">Save Attendance</button></div>
+          </div>
+        </div>` : ""}
         <div class="attendance-month-bar">
           <div class="field"><label>Monthly Report</label><input id="attendanceMonth" type="month" value="${selectedMonth}" onchange="renderAttendance()"></div>
           <button class="btn light" onclick="exportCSV('attendance')">Export Monthly Attendance</button>
@@ -3012,6 +3025,35 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (event.key !== "Enter") return;
       event.preventDefault();
       markAttendance();
+    }
+    function addManualAttendance() {
+      if (currentUser?.role !== "Owner") return toast("Owner permission required.");
+      const select = document.getElementById("manualAttendancePerson");
+      const option = select?.selectedOptions[0];
+      const name = select?.value;
+      const date = document.getElementById("manualAttendanceDate").value;
+      const inTime = document.getElementById("manualAttendanceIn").value;
+      const outTime = document.getElementById("manualAttendanceOut").value;
+      let status = document.getElementById("manualAttendanceStatus").value;
+      if (!name || !date) return toast("Select staff and date.");
+      if (status !== "Absent" && !inTime) return toast("In time is required unless status is Absent.");
+      if (outTime && status === "Present") status = "Completed";
+      state.attendance.push({
+        id: uid("a"),
+        date,
+        username: option?.dataset.username || currentUser.username,
+        staffUsername: option?.dataset.username || name,
+        name,
+        role: option?.dataset.role || "Cashier",
+        time: status === "Absent" ? "" : inTime,
+        outTime: status === "Absent" ? "" : outTime,
+        status,
+        markedBy: currentUser.username,
+        manual: true
+      });
+      save();
+      renderAttendance();
+      toast("Manual attendance saved.");
     }
     function openAttendanceModal(id) {
       if (!requireOwner()) return;
