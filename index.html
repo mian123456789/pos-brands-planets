@@ -2752,118 +2752,30 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         ${footerHtml}
       </div>`;
       const copies = `${receiptHtml("Cashier Copy")}<div class="copy-separator"><span>Cut Here</span></div>${receiptHtml("Customer Copy")}`;
-      printThermalReceipt(copies);
+      printReceiptFromCurrentPage(copies);
     }
     function printThermalReceipt(receiptMarkup) {
-      const printWindow = window.open("", "bpReceiptPrint", "width=420,height=720,left=80,top=80");
-      if (!printWindow) {
-        return printReceiptFromCurrentPage(receiptMarkup);
-      }
-      const printDoc = printWindow.document;
-      printDoc.open();
-      printDoc.write(`<!doctype html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <title>Receipt</title>
-          <style>
-            @page { size: 80mm auto; margin: 0; }
-            * { box-sizing: border-box; }
-            html, body {
-              width: 80mm;
-              min-width: 80mm;
-              margin: 0;
-              padding: 0;
-              background: #fff;
-              color: #000;
-              font-family: Arial, sans-serif;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-            .receipt {
-              width: 80mm;
-              background: #fff;
-              color: #000;
-              padding: 4mm;
-              font-family: Arial, sans-serif;
-              font-size: 12px;
-              line-height: 1.35;
-              page-break-inside: avoid;
-            }
-            .receipt h1 { text-align: center; font-size: 17px; margin: 4px 0; }
-            .center { text-align: center; }
-            .copy-title {
-              display: inline-block;
-              margin-top: 4px;
-              padding: 2px 8px;
-              border: 1px solid #000;
-              border-radius: 999px;
-              font-size: 10px;
-              font-weight: 800;
-              text-transform: uppercase;
-              letter-spacing: .02em;
-            }
-            .line { border-top: 1px dashed #000; margin: 8px 0; }
-            table { width: 100%; min-width: 0; border: 0; table-layout: fixed; border-collapse: collapse; }
-            th, td { border: 0; padding: 3px 0; color: #000; background: #fff; font-size: 11px; vertical-align: top; }
-            th:first-child, td:first-child { width: 56%; text-align: left; overflow-wrap: anywhere; }
-            th:nth-child(2), td:nth-child(2) { width: 13%; text-align: center; }
-            th:last-child, td:last-child { width: 31%; text-align: right; }
-            img { max-height: 48px; display: block; margin: 0 auto 4px; }
-            .receipt-meta div { display: flex; justify-content: space-between; gap: 8px; }
-            .receipt-meta span, .receipt-meta strong { overflow-wrap: anywhere; }
-            .receipt-total-box { width: 62%; margin-left: auto; display: grid; gap: 3px; font-size: 12px; }
-            .receipt-total-box div { display: flex; justify-content: space-between; gap: 8px; text-align: right; }
-            .receipt-grand { border-top: 1px solid #000; margin-top: 3px; padding-top: 4px; font-weight: 800; font-size: 13px; }
-            .copy-separator {
-              width: 80mm;
-              padding: 3mm 4mm;
-              color: #000;
-              background: #fff;
-              text-align: center;
-              font-size: 10px;
-              font-family: Arial, sans-serif;
-            }
-            .copy-separator span {
-              display: block;
-              border-top: 1px dashed #000;
-              padding-top: 3mm;
-            }
-          </style>
-        </head>
-        <body>${receiptMarkup}</body>
-        </html>`);
-      printDoc.close();
-
-      const runPrint = () => {
-        printWindow.focus();
-        printWindow.addEventListener("afterprint", () => printWindow.close(), { once: true });
-        printWindow.print();
-        setTimeout(() => {
-          try { printWindow.close(); } catch (error) {}
-        }, 20000);
-      };
-      const images = Array.from(printDoc.images || []);
-      const imageReady = images.map(img => img.complete ? Promise.resolve() : new Promise(resolve => {
-        img.onload = resolve;
-        img.onerror = resolve;
-      }));
-      Promise.all(imageReady).then(() => setTimeout(runPrint, 500));
+      printReceiptFromCurrentPage(receiptMarkup);
     }
     function printReceiptFromCurrentPage(receiptMarkup) {
       const printArea = document.getElementById("printArea");
       printArea.innerHTML = receiptMarkup;
       printArea.classList.remove("hidden");
+      const images = Array.from(printArea.querySelectorAll("img"));
+      const imageReady = images.map(img => img.complete ? Promise.resolve() : new Promise(resolve => {
+        img.onload = resolve;
+        img.onerror = resolve;
+      }));
       const finishPrint = () => {
         printArea.classList.add("hidden");
         printArea.innerHTML = "";
         window.removeEventListener("afterprint", finishPrint);
       };
       window.addEventListener("afterprint", finishPrint);
-      requestAnimationFrame(() => setTimeout(() => {
+      Promise.all(imageReady).then(() => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
         window.print();
         setTimeout(finishPrint, 15000);
-      }, 150));
+      }, 300))));
     }
 
     function renderReports() {
