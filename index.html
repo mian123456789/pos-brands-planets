@@ -2846,7 +2846,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
 
     function renderReports() {
-      const selectedPeriod = document.getElementById("reportPeriod")?.value || sessionStorage.getItem("bp-pos-report-period") || "month";
+      const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
       sessionStorage.setItem("bp-pos-report-period", selectedPeriod);
       const range = periodRange(selectedPeriod);
       const periodBills = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range));
@@ -2858,7 +2858,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         ${stat("Date Range", `${range.start}`, `to ${range.end}`)}
         ${stat("Expenses", money(periodExpenses), range.label)}
         ${stat("Net Sales", money(periodSales - periodExpenses), "After expenses")}
-        ${stat("Cash vs Bank", money(payment[0][1]) + " / " + money(payment[1][1]), "Comparison")}
+        ${stat(`${range.label} Cash vs Bank`, money(payment[0][1]) + " / " + money(payment[1][1]), "Comparison")}
       </div>
       <div class="card" style="margin-top:16px">
         <div class="section-title"><h3>Bill Reports</h3><button class="btn light" onclick="exportCSV('bills')">Export Excel</button></div>
@@ -2872,7 +2872,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         </div>
         <div id="billTable"></div>
       </div>
-      <div class="card" style="margin-top:16px"><div class="section-title"><h3>Payment Method Breakdown</h3></div>
+      <div class="card" style="margin-top:16px"><div class="section-title"><h3>${range.label} Payment Method Breakdown</h3></div>
         <div class="grid stats">${payment.map(([m,v]) => stat(m, money(v), m === "Bank" ? "Typed references" : "Total")).join("")}</div>
       </div>`;
       document.getElementById("reportPeriod").value = selectedPeriod;
@@ -2880,7 +2880,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function renderBillTable() {
       const q = (document.getElementById("billSearch")?.value || "").toLowerCase();
-      const selectedPeriod = document.getElementById("reportPeriod")?.value || sessionStorage.getItem("bp-pos-report-period") || "month";
+      const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
       const range = periodRange(selectedPeriod);
       const rows = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range) && [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef].join(" ").toLowerCase().includes(q)).slice().reverse();
       document.getElementById("billTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Bill</th><th>Customer</th><th>Cashier</th><th>Payment</th><th>Total</th><th>Actions</th></tr></thead><tbody>
@@ -3612,7 +3612,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       let rows = [];
       if (type === "inventory") rows = [["Name","Barcode","Category","Price","Stock","Discount","Remarks"], ...state.products.map(p => [p.name,p.barcode,p.category,p.price,p.stock,p.discount,p.remarks])];
       if (type === "bills") {
-        const selectedPeriod = document.getElementById("reportPeriod")?.value || sessionStorage.getItem("bp-pos-report-period") || "month";
+        const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
         const range = periodRange(selectedPeriod);
         rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Bank","Discount","Total"], ...state.bills.filter(b => dateInRange(b.date.slice(0, 10), range)).map(b => [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,b.bankRef,billTotals(b).discount,billTotals(b).total])];
       }
