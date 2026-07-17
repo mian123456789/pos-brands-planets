@@ -1865,6 +1865,31 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       d.setDate(d.getDate() - 1);
       return d.toISOString().slice(0, 10);
     };
+    function dateFromKey(key) {
+      const [year, month, day] = key.split("-").map(Number);
+      return new Date(Date.UTC(year, month - 1, day));
+    }
+    function keyFromDate(date) {
+      return date.toISOString().slice(0, 10);
+    }
+    function addDaysKey(key, days) {
+      const date = dateFromKey(key);
+      date.setUTCDate(date.getUTCDate() + days);
+      return keyFromDate(date);
+    }
+    function periodRange(period = "month") {
+      const today = todayKey();
+      if (period === "today") return { start: today, end: today, label: "Today" };
+      if (period === "week") {
+        const date = dateFromKey(today);
+        const day = date.getUTCDay() || 7;
+        return { start: addDaysKey(today, -(day - 1)), end: today, label: "This Week" };
+      }
+      return { start: `${today.slice(0, 7)}-01`, end: today, label: "This Month" };
+    }
+    function dateInRange(date, range) {
+      return date >= range.start && date <= range.end;
+    }
     const uid = prefix => prefix + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
     const API_BASE_URL = window.location.origin;
     const API_STATE_URL = `${API_BASE_URL}/api/state`;
@@ -2821,30 +2846,43 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
 
     function renderReports() {
-      const daily = salesFor(todayKey());
-      const monthlyBills = state.bills.filter(b => b.date.slice(0, 7) === monthKey());
-      const monthly = monthlyBills.reduce((s,b)=>s+billTotals(b).total,0);
-      const payment = ["Cash", "Bank"].map(m => [m, state.bills.filter(b => b.paymentMethod === m).reduce((s,b)=>s+billTotals(b).total,0)]);
+      const selectedPeriod = document.getElementById("reportPeriod")?.value || sessionStorage.getItem("bp-pos-report-period") || "month";
+      sessionStorage.setItem("bp-pos-report-period", selectedPeriod);
+      const range = periodRange(selectedPeriod);
+      const periodBills = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range));
+      const periodSales = periodBills.reduce((s,b)=>s+billTotals(b).total,0);
+      const periodExpenses = state.expenses.filter(e => dateInRange(e.date, range)).reduce((s, e) => s + Number(e.amount), 0);
+      const payment = ["Cash", "Bank"].map(m => [m, periodBills.filter(b => b.paymentMethod === m).reduce((s,b)=>s+billTotals(b).total,0)]);
       document.getElementById("reports").innerHTML = `<div class="grid stats">
-        ${stat("Daily Sales", money(daily), todayKey())}
-        ${stat("Monthly Sales", money(monthly), monthKey())}
-        ${stat("Expenses", money(expensesFor(todayKey())), "Today")}
-        ${stat("Net Sales", money(daily - expensesFor(todayKey())), "After expenses")}
+        ${stat(`${range.label} Sales`, money(periodSales), `${periodBills.length} bills`)}
+        ${stat("Date Range", `${range.start}`, `to ${range.end}`)}
+        ${stat("Expenses", money(periodExpenses), range.label)}
+        ${stat("Net Sales", money(periodSales - periodExpenses), "After expenses")}
         ${stat("Cash vs Bank", money(payment[0][1]) + " / " + money(payment[1][1]), "Comparison")}
       </div>
       <div class="card" style="margin-top:16px">
         <div class="section-title"><h3>Bill Reports</h3><button class="btn light" onclick="exportCSV('bills')">Export Excel</button></div>
-        <div class="toolbar"><input id="billSearch" placeholder="Search bills, customer, phone" oninput="renderBillTable()"></div>
+        <div class="toolbar">
+          <select id="reportPeriod" onchange="sessionStorage.setItem('bp-pos-report-period', this.value); renderReports()">
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+          </select>
+          <input id="billSearch" placeholder="Search bills, customer, phone" oninput="renderBillTable()">
+        </div>
         <div id="billTable"></div>
       </div>
       <div class="card" style="margin-top:16px"><div class="section-title"><h3>Payment Method Breakdown</h3></div>
         <div class="grid stats">${payment.map(([m,v]) => stat(m, money(v), m === "Bank" ? "Typed references" : "Total")).join("")}</div>
       </div>`;
+      document.getElementById("reportPeriod").value = selectedPeriod;
       renderBillTable();
     }
     function renderBillTable() {
       const q = (document.getElementById("billSearch")?.value || "").toLowerCase();
-      const rows = state.bills.filter(b => [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef].join(" ").toLowerCase().includes(q)).slice().reverse();
+      const selectedPeriod = document.getElementById("reportPeriod")?.value || sessionStorage.getItem("bp-pos-report-period") || "month";
+      const range = periodRange(selectedPeriod);
+      const rows = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range) && [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef].join(" ").toLowerCase().includes(q)).slice().reverse();
       document.getElementById("billTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Bill</th><th>Customer</th><th>Cashier</th><th>Payment</th><th>Total</th><th>Actions</th></tr></thead><tbody>
       ${rows.map(b => `<tr><td>${new Date(b.date).toLocaleString()}</td><td>${b.id}</td><td>${b.customerName}<br>${b.customerPhone}</td><td>${b.cashier}</td><td><span class="badge">${b.saleMode || "In Store"}</span><br>${b.paymentMethod} ${b.bankRef || ""}</td><td>${money(billTotals(b).total)}</td><td><div class="user-actions"><button class="btn light" onclick="printReceiptById('${b.id}', 'customer')">Customer Copy</button><button class="btn light" onclick="printReceiptById('${b.id}', 'cashier')">Cashier Copy</button>${currentUser.role === "Owner" ? `<button class="btn danger" onclick="deleteBill('${b.id}')">Delete</button>` : ""}</div></td></tr>`).join("") || `<tr><td colspan="7">No bills found.</td></tr>`}
       </tbody></table></div>`;
@@ -2903,9 +2941,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       };
     }
     function renderAttendance() {
-      const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
-      sessionStorage.setItem("bp-pos-attendance-month", selectedMonth);
-      const report = buildMonthlyAttendanceReport(selectedMonth);
+      const selectedPeriod = document.getElementById("attendancePeriod")?.value || sessionStorage.getItem("bp-pos-attendance-period") || "month";
+      sessionStorage.setItem("bp-pos-attendance-period", selectedPeriod);
+      const report = buildAttendanceReport(selectedPeriod);
       const attendanceRows = report.rows.filter(record => !record.virtual);
       const needsMark = attendanceRequired();
       const needsOut = markOutRequired();
@@ -2944,8 +2982,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           </div>
         </div>` : ""}
         <div class="attendance-month-bar">
-          <div class="field"><label>Monthly Report</label><input id="attendanceMonth" type="month" value="${selectedMonth}" onchange="renderAttendance()"></div>
-          <button class="btn light" onclick="exportCSV('attendance')">Export Monthly Attendance</button>
+          <div class="field"><label>Attendance Period</label><select id="attendancePeriod" onchange="sessionStorage.setItem('bp-pos-attendance-period', this.value); renderAttendance()"><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option></select></div>
+          <div class="field"><label>Range</label><input value="${report.range.start} to ${report.range.end}" readonly></div>
+          <button class="btn light" onclick="exportCSV('attendance')">Export Attendance</button>
         </div>
         <div class="attendance-report-head">
           ${attendanceReportCard("Present", report.summary.present)}
@@ -2954,28 +2993,25 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           ${attendanceReportCard("No Record", report.summary.none)}
         </div>
         <div class="table-wrap attendance-table"><table><thead><tr><th>Date</th><th>Name</th><th>Role</th><th>In Time</th><th>Out Time</th><th>Status</th>${canManage ? "<th>Actions</th>" : ""}</tr></thead><tbody>
-        ${attendanceRows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No marked attendance records for this month.</td></tr>`}
+        ${attendanceRows.map(a => attendanceRow(a, canManage)).join("") || `<tr><td colspan="${canManage ? 7 : 6}">No marked attendance records for ${report.range.label.toLowerCase()}.</td></tr>`}
         </tbody></table></div>
       </div>`;
+      document.getElementById("attendancePeriod").value = selectedPeriod;
       setTimeout(() => document.getElementById("attendancePersonSelect")?.focus(), 50);
     }
     function attendanceReportCard(label, value) {
       return `<div class="attendance-report-card"><small>${label}</small><strong>${value}</strong></div>`;
     }
-    function buildMonthlyAttendanceReport(selectedMonth = monthKey()) {
-      const [year, month] = selectedMonth.split("-").map(Number);
-      const days = new Date(year, month, 0).getDate();
-      const today = todayKey();
+    function buildAttendanceReport(period = "month") {
+      const range = periodRange(period);
       const cashiers = attendanceStaffOptions().map(staff => staff.name);
       state.attendance.forEach(record => {
         const staffName = record.name || record.username;
-        if (record.date?.slice(0, 7) === selectedMonth && staffName && !cashiers.includes(staffName)) cashiers.push(staffName);
+        if (record.date && dateInRange(record.date, range) && staffName && !cashiers.includes(staffName)) cashiers.push(staffName);
       });
       const rows = [];
       const summary = { present: 0, absent: 0, completed: 0, none: 0 };
-      for (let day = 1; day <= days; day++) {
-        const date = `${selectedMonth}-${String(day).padStart(2, "0")}`;
-        if (date > today) continue;
+      for (let date = range.start; date <= range.end; date = addDaysKey(date, 1)) {
         cashiers.forEach(username => {
           const records = state.attendance.filter(record => (record.name || record.username) === username && record.date === date);
           if (!records.length) {
@@ -2991,7 +3027,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           });
         });
       }
-      return { rows: rows.reverse(), summary };
+      return { rows: rows.reverse(), summary, range };
+    }
+    function buildMonthlyAttendanceReport(selectedPeriod = "month") {
+      return buildAttendanceReport(selectedPeriod);
     }
     function attendanceRow(record, canManage) {
       const status = record.status === "No Record" ? "No Record" : record.outTime ? "Completed" : record.status;
@@ -3572,10 +3611,14 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function exportCSV(type) {
       let rows = [];
       if (type === "inventory") rows = [["Name","Barcode","Category","Price","Stock","Discount","Remarks"], ...state.products.map(p => [p.name,p.barcode,p.category,p.price,p.stock,p.discount,p.remarks])];
-      if (type === "bills") rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Bank","Discount","Total"], ...state.bills.map(b => [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,b.bankRef,billTotals(b).discount,billTotals(b).total])];
+      if (type === "bills") {
+        const selectedPeriod = document.getElementById("reportPeriod")?.value || sessionStorage.getItem("bp-pos-report-period") || "month";
+        const range = periodRange(selectedPeriod);
+        rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Bank","Discount","Total"], ...state.bills.filter(b => dateInRange(b.date.slice(0, 10), range)).map(b => [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,b.bankRef,billTotals(b).discount,billTotals(b).total])];
+      }
       if (type === "attendance") {
-        const selectedMonth = document.getElementById("attendanceMonth")?.value || sessionStorage.getItem("bp-pos-attendance-month") || monthKey();
-        const report = buildMonthlyAttendanceReport(selectedMonth);
+        const selectedPeriod = document.getElementById("attendancePeriod")?.value || sessionStorage.getItem("bp-pos-attendance-period") || "month";
+        const report = buildAttendanceReport(selectedPeriod);
         rows = [["Date","Name","Role","In Time","Out Time","Status"], ...report.rows.filter(a => !a.virtual).slice().reverse().map(a => [a.date,a.name || a.username,a.role,a.time || "",a.outTime || "",a.status])];
       }
       const csv = rows.map(r => r.map(v => `"${String(v ?? "").replaceAll('"','""')}"`).join(",")).join("\n");
