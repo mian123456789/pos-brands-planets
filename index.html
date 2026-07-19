@@ -1914,6 +1914,16 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       attendance: [],
       stockHistory: [],
       dayClosings: [],
+      deleted: {
+        products: [],
+        bills: [],
+        attendance: [],
+        expenses: [],
+        staff: [],
+        staffNames: [],
+        dayClosings: [],
+        users: []
+      },
       settings: {
         shopName: "Brands Planets",
         phone: "03000000000",
@@ -1964,8 +1974,48 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       ["users", "Manage Users"],
       ["settings", "Settings"]
     ];
+    const deletedBuckets = ["products", "bills", "attendance", "expenses", "staff", "staffNames", "dayClosings", "users"];
+
+    function normalizeDeletedRecords(target = state) {
+      target.deleted = target.deleted || {};
+      deletedBuckets.forEach(bucket => {
+        target.deleted[bucket] = Array.from(new Set((target.deleted[bucket] || []).map(value => String(value))));
+      });
+      return target.deleted;
+    }
+    function mergeDeletedRecords(localDeleted = {}, remoteDeleted = {}) {
+      const merged = {};
+      deletedBuckets.forEach(bucket => {
+        merged[bucket] = Array.from(new Set([...(localDeleted[bucket] || []), ...(remoteDeleted[bucket] || [])].map(value => String(value))));
+      });
+      return merged;
+    }
+    function recordKey(item) {
+      return String(item?.id || item?.date || "");
+    }
+    function applyDeletedRecords(target = state) {
+      const deleted = normalizeDeletedRecords(target);
+      const deletedStaffNames = new Set((deleted.staffNames || []).map(name => String(name).trim().toLowerCase()));
+      if (Array.isArray(target.products)) target.products = target.products.filter(item => !deleted.products.includes(recordKey(item)));
+      if (Array.isArray(target.bills)) target.bills = target.bills.filter(item => !deleted.bills.includes(recordKey(item)));
+      if (Array.isArray(target.attendance)) target.attendance = target.attendance.filter(item => !deleted.attendance.includes(recordKey(item)));
+      if (Array.isArray(target.expenses)) target.expenses = target.expenses.filter(item => !deleted.expenses.includes(recordKey(item)));
+      if (Array.isArray(target.staff)) {
+        target.staff = target.staff.filter(item => !deleted.staff.includes(recordKey(item)) && !deletedStaffNames.has(String(item.name || "").trim().toLowerCase()));
+      }
+      if (Array.isArray(target.dayClosings)) target.dayClosings = target.dayClosings.filter(item => !deleted.dayClosings.includes(recordKey(item)));
+      if (Array.isArray(target.users)) target.users = target.users.filter(item => !deleted.users.includes(recordKey(item)));
+    }
+    function markDeleted(bucket, value) {
+      if (!value) return;
+      const deleted = normalizeDeletedRecords(state);
+      const cleanValue = String(value);
+      if (!deleted[bucket].includes(cleanValue)) deleted[bucket].push(cleanValue);
+    }
 
     function save(immediateCloud = false) {
+      normalizeDeletedRecords(state);
+      applyDeletedRecords(state);
       state.updatedAt = new Date().toISOString();
       localStorage.setItem("bp-pos-state", JSON.stringify(state));
       localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
@@ -1975,18 +2025,24 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function mergeState(remoteState, remoteUpdatedAt = "") {
       if (!remoteState || !Array.isArray(remoteState.users) || !Array.isArray(remoteState.products)) return false;
+      normalizeDeletedRecords(state);
+      normalizeDeletedRecords(remoteState);
       const localUpdatedAt = state.updatedAt || localStorage.getItem("bp-pos-local-updated-at") || "";
       const incomingUpdatedAt = remoteState.updatedAt || remoteUpdatedAt || "";
       if (localUpdatedAt && incomingUpdatedAt && new Date(incomingUpdatedAt) < new Date(localUpdatedAt)) {
+        applyDeletedRecords(state);
         pushCloudState();
         return true;
       }
-      state = {
+      const mergedState = {
         ...seed,
         ...remoteState,
+        deleted: mergeDeletedRecords(state.deleted, remoteState.deleted),
         updatedAt: incomingUpdatedAt || remoteState.updatedAt || new Date().toISOString(),
         settings: { ...seed.settings, ...(remoteState.settings || {}) }
       };
+      applyDeletedRecords(mergedState);
+      state = mergedState;
       localStorage.setItem("bp-pos-state", JSON.stringify(state));
       localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
       return true;
@@ -2018,6 +2074,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     async function pushCloudState() {
       try {
+        normalizeDeletedRecords(state);
+        applyDeletedRecords(state);
         state.updatedAt = state.updatedAt || new Date().toISOString();
         const response = await fetchWithTimeout(API_STATE_URL, {
           method: "POST",
@@ -2091,16 +2149,20 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function normalizeStaffRecords() {
       let changed = false;
+      normalizeDeletedRecords(state);
       if (!Array.isArray(state.staff)) {
         state.staff = [];
         changed = true;
       }
+      applyDeletedRecords(state);
+      const deletedStaffNames = new Set((state.deleted.staffNames || []).map(name => String(name).trim().toLowerCase()));
       const seen = new Set(state.staff.map(staff => String(staff.name || "").trim().toLowerCase()).filter(Boolean));
       const addStaff = (name, role = "Cashier", phone = "", remarks = "") => {
         const cleanName = String(name || "").trim();
-        if (!cleanName || seen.has(cleanName.toLowerCase())) return;
+        const cleanKey = cleanName.toLowerCase();
+        if (!cleanName || deletedStaffNames.has(cleanKey) || seen.has(cleanKey)) return;
         state.staff.push({ id: uid("s"), name: cleanName, role, phone, remarks });
-        seen.add(cleanName.toLowerCase());
+        seen.add(cleanKey);
         changed = true;
       };
       state.users.filter(user => user.role === "Cashier").forEach(user => addStaff(user.username, "Cashier", "", "Cashier login"));
@@ -2150,6 +2212,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
 
     function init() {
+      normalizeDeletedRecords();
+      applyDeletedRecords();
       normalizeSettings();
       normalizeInventoryCategories();
       normalizeUserPermissions();
@@ -2161,6 +2225,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       else document.getElementById("username").focus();
       pullCloudState(false).then(loaded => {
         if (!loaded) return;
+        normalizeDeletedRecords();
+        applyDeletedRecords();
         normalizeSettings();
         normalizeInventoryCategories();
         normalizeUserPermissions();
@@ -2248,6 +2314,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state;
         await pushCloudState();
       }
+      normalizeDeletedRecords();
+      applyDeletedRecords();
       normalizeSettings();
       normalizeInventoryCategories();
       normalizeUserPermissions();
@@ -2567,6 +2635,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function deleteProduct(id) {
       if (!can("inventory")) return showSectionMessage("inventory", "You do not have permission to delete inventory.");
       if (!confirm("Delete this product?")) return;
+      markDeleted("products", id);
       state.products = state.products.filter(p => p.id !== id);
       save(true); renderInventory();
     }
@@ -2884,12 +2953,14 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const range = periodRange(selectedPeriod);
       const rows = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range) && [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef].join(" ").toLowerCase().includes(q)).slice().reverse();
       document.getElementById("billTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Bill</th><th>Customer</th><th>Cashier</th><th>Payment</th><th>Total</th><th>Actions</th></tr></thead><tbody>
-      ${rows.map(b => `<tr><td>${new Date(b.date).toLocaleString()}</td><td>${b.id}</td><td>${b.customerName}<br>${b.customerPhone}</td><td>${b.cashier}</td><td><span class="badge">${b.saleMode || "In Store"}</span><br>${b.paymentMethod} ${b.bankRef || ""}</td><td>${money(billTotals(b).total)}</td><td><div class="user-actions"><button class="btn light" onclick="printReceiptById('${b.id}', 'customer')">Customer Copy</button><button class="btn light" onclick="printReceiptById('${b.id}', 'cashier')">Cashier Copy</button>${currentUser.role === "Owner" ? `<button class="btn danger" onclick="deleteBill('${b.id}')">Delete</button>` : ""}</div></td></tr>`).join("") || `<tr><td colspan="7">No bills found.</td></tr>`}
+      ${rows.map(b => `<tr><td>${new Date(b.date).toLocaleString()}</td><td>${b.id}</td><td>${b.customerName}<br>${b.customerPhone}</td><td>${b.cashier}</td><td><span class="badge">${b.saleMode || "In Store"}</span><br>${b.paymentMethod} ${b.bankRef || ""}</td><td>${money(billTotals(b).total)}</td><td><div class="user-actions"><button class="btn light" onclick="printReceiptById('${b.id}', 'customer')">Customer Copy</button><button class="btn light" onclick="printReceiptById('${b.id}', 'cashier')">Cashier Copy</button><button class="btn danger" onclick="deleteBill('${b.id}')">Delete</button></div></td></tr>`).join("") || `<tr><td colspan="7">No bills found.</td></tr>`}
       </tbody></table></div>`;
     }
     function printReceiptById(id, copyType = "customer") { const b = state.bills.find(x => x.id === id); if (b) printReceipt(b, copyType); }
     function deleteBill(id) {
-      if (!requireOwner() || !confirm("Delete bill? Stock will not be restored automatically.")) return;
+      if (!can("reports")) return toast("You do not have permission to delete bills.");
+      if (!confirm("Delete bill? Stock will not be restored automatically.")) return;
+      markDeleted("bills", id);
       state.bills = state.bills.filter(b => b.id !== id);
       save(true); renderReports();
     }
@@ -3165,6 +3236,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function deleteAttendance(id) {
       if (!requireOwner()) return;
       if (!confirm("Delete this attendance record?")) return;
+      markDeleted("attendance", id);
       state.attendance = state.attendance.filter(record => record.id !== id);
       save(true);
       renderAttendance();
@@ -3312,6 +3384,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const expense = state.expenses.find(e => e.id === id);
       if (!expense || !canEditExpense(expense)) return toast("You can delete only your own expenses.");
       if (!confirm("Delete this expense?")) return;
+      markDeleted("expenses", id);
       state.expenses = state.expenses.filter(e => e.id !== id);
       save(true);
       renderExpenses();
@@ -3405,6 +3478,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const remarks = document.getElementById("staffRemarks").value.trim();
       if (!name) return toast("Staff name is required.");
       if ((state.staff || []).some(staff => staff.name.toLowerCase() === name.toLowerCase())) return toast("Staff already exists.");
+      normalizeDeletedRecords(state);
+      state.deleted.staffNames = state.deleted.staffNames.filter(staffName => staffName !== name.toLowerCase());
       state.staff.push({ id: uid("s"), name, role, phone, remarks });
       save();
       renderStaff();
@@ -3438,6 +3513,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const staff = state.staff.find(item => item.id === id);
       if (!staff) return toast("Staff not found.");
       if (state.attendance.some(record => (record.name || record.username) === staff.name) && !confirm("This staff has attendance records. Delete staff from list anyway? Reports will keep old attendance records.")) return;
+      markDeleted("staff", id);
+      markDeleted("staffNames", String(staff.name || "").trim().toLowerCase());
       state.staff = state.staff.filter(item => item.id !== id);
       save(true);
       renderStaff();
@@ -3457,6 +3534,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function reopenDay() {
       if (!requireOwner()) return;
+      markDeleted("dayClosings", todayKey());
       state.dayClosings = state.dayClosings.filter(d => d.date !== todayKey());
       save(); renderDayClose(); toast("Day reopened.");
     }
@@ -3604,6 +3682,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function removeUser(id) {
       if (!confirm("Delete this cashier?")) return;
+      markDeleted("users", id);
       state.users = state.users.filter(u => u.id !== id);
       save(true); renderUsers();
     }
