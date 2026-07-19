@@ -1377,6 +1377,29 @@
       z-index: 12;
     }
     .notice { padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+    .notice-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--blue);
+      font-weight: 900;
+    }
+    .notice-detail {
+      margin-top: 5px;
+      color: var(--muted);
+      line-height: 1.45;
+      font-weight: 700;
+    }
+    .notice-bill {
+      margin-top: 8px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 9px;
+      background: #f8fbff;
+      color: var(--blue);
+      font-size: 12px;
+      line-height: 1.55;
+    }
     :root {
       --receipt-paper-width: 80mm;
       --receipt-print-width: 72.1mm;
@@ -1914,6 +1937,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       attendance: [],
       stockHistory: [],
       dayClosings: [],
+      notifications: [],
       deleted: {
         products: [],
         bills: [],
@@ -1990,6 +2014,28 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       });
       return merged;
     }
+    function normalizeNotifications(target = state) {
+      if (!Array.isArray(target.notifications)) target.notifications = [];
+      target.notifications = target.notifications.filter(item => item && item.id).slice(0, 100);
+    }
+    function mergeNotifications(localNotifications = [], remoteNotifications = []) {
+      const merged = new Map();
+      [...remoteNotifications, ...localNotifications].forEach(item => {
+        if (item?.id) merged.set(item.id, item);
+      });
+      return [...merged.values()].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 100);
+    }
+    function addAdminNotification(notification) {
+      normalizeNotifications(state);
+      state.notifications.unshift({
+        id: uid("n"),
+        audience: "Owner",
+        read: false,
+        date: new Date().toISOString(),
+        ...notification
+      });
+      state.notifications = state.notifications.slice(0, 100);
+    }
     function recordKey(item) {
       return String(item?.id || item?.date || "");
     }
@@ -2015,6 +2061,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
 
     function save(immediateCloud = false) {
       normalizeDeletedRecords(state);
+      normalizeNotifications(state);
       applyDeletedRecords(state);
       state.updatedAt = new Date().toISOString();
       localStorage.setItem("bp-pos-state", JSON.stringify(state));
@@ -2027,6 +2074,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!remoteState || !Array.isArray(remoteState.users) || !Array.isArray(remoteState.products)) return false;
       normalizeDeletedRecords(state);
       normalizeDeletedRecords(remoteState);
+      normalizeNotifications(state);
+      normalizeNotifications(remoteState);
       const localUpdatedAt = state.updatedAt || localStorage.getItem("bp-pos-local-updated-at") || "";
       const incomingUpdatedAt = remoteState.updatedAt || remoteUpdatedAt || "";
       if (localUpdatedAt && incomingUpdatedAt && new Date(incomingUpdatedAt) < new Date(localUpdatedAt)) {
@@ -2038,6 +2087,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         ...seed,
         ...remoteState,
         deleted: mergeDeletedRecords(state.deleted, remoteState.deleted),
+        notifications: mergeNotifications(state.notifications, remoteState.notifications),
         updatedAt: incomingUpdatedAt || remoteState.updatedAt || new Date().toISOString(),
         settings: { ...seed.settings, ...(remoteState.settings || {}) }
       };
@@ -2075,6 +2125,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     async function pushCloudState() {
       try {
         normalizeDeletedRecords(state);
+        normalizeNotifications(state);
         applyDeletedRecords(state);
         state.updatedAt = state.updatedAt || new Date().toISOString();
         const response = await fetchWithTimeout(API_STATE_URL, {
@@ -2205,10 +2256,31 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       lastNotice = text;
     }
     function notifications() {
-      const low = state.products.filter(p => Number(p.stock) <= 5).map(p => `Low stock: ${p.name} (${p.stock})`);
-      const att = attendanceRequired() ? ["Attendance required before using the POS."] : [];
-      const cloud = cloudOnline ? [`Cloud connected: ${API_BASE_URL}`] : ["Cloud offline: using local data."];
-      return [...att, ...low, ...cloud].slice(0, 8);
+      normalizeNotifications(state);
+      const adminAlerts = currentUser?.role === "Owner"
+        ? state.notifications.filter(item => item.audience === "Owner").slice(0, 10)
+        : [];
+      const low = state.products.filter(p => Number(p.stock) <= 5).map(p => ({
+        title: "Low Stock",
+        detail: `${p.name} has ${p.stock} items left.`
+      }));
+      const att = attendanceRequired() ? [{ title: "Attendance Required", detail: "Mark attendance before using the POS." }] : [];
+      const cloud = [{ title: cloudOnline ? "Cloud Connected" : "Cloud Offline", detail: cloudOnline ? API_BASE_URL : "Using local data." }];
+      return [...adminAlerts, ...att, ...low, ...cloud].slice(0, 12);
+    }
+    function notificationHtml(item) {
+      const date = item.date ? new Date(item.date).toLocaleString() : "";
+      const bill = item.bill ? `<div class="notice-bill">
+        <strong>Bill:</strong> ${escapeHtml(item.bill.id || "")}<br>
+        <strong>Customer:</strong> ${escapeHtml(item.bill.customer || "")} ${escapeHtml(item.bill.phone || "")}<br>
+        <strong>Total:</strong> ${money(item.bill.total)}<br>
+        <strong>Items:</strong> ${escapeHtml(item.bill.items || "")}
+      </div>` : "";
+      return `<div class="notice">
+        <div class="notice-title"><span>${escapeHtml(item.title || "Notification")}</span><small>${escapeHtml(date)}</small></div>
+        <div class="notice-detail">${escapeHtml(item.detail || "")}</div>
+        ${bill}
+      </div>`;
     }
 
     function init() {
@@ -2297,7 +2369,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       document.getElementById("notifyBtn").onclick = () => {
         const panel = document.getElementById("notificationPanel");
         panel.classList.toggle("hidden");
-        panel.innerHTML = `<div class="section-title"><h3>Notifications</h3><button class="btn light icon" onclick="notificationPanel.classList.add('hidden')">x</button></div>` + notifications().map(n => `<div class="notice">${n}</div>`).join("");
+        const items = notifications();
+        panel.innerHTML = `<div class="section-title"><h3>Notifications</h3><button class="btn light icon" onclick="notificationPanel.classList.add('hidden')">x</button></div>` + (items.map(notificationHtml).join("") || `<div class="notice">No notifications.</div>`);
       };
       window.addEventListener("storage", () => { state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state; if (activeSection !== "billing") render(activeSection); });
       window.addEventListener("storage-lite", () => { if (activeSection !== "billing") render(activeSection); });
@@ -2959,7 +3032,25 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function printReceiptById(id, copyType = "customer") { const b = state.bills.find(x => x.id === id); if (b) printReceipt(b, copyType); }
     function deleteBill(id) {
       if (!can("reports")) return toast("You do not have permission to delete bills.");
+      const bill = state.bills.find(b => b.id === id);
+      if (!bill) return toast("Bill not found.");
       if (!confirm("Delete bill? Stock will not be restored automatically.")) return;
+      if (currentUser?.role === "Cashier") {
+        const totals = billTotals(bill);
+        addAdminNotification({
+          type: "billDeleted",
+          title: "Cashier Deleted Bill",
+          detail: `${currentUser.username} deleted bill ${bill.id}.`,
+          bill: {
+            id: bill.id,
+            customer: bill.customerName,
+            phone: bill.customerPhone,
+            cashier: bill.cashier,
+            total: totals.total,
+            items: bill.items.map(item => `${item.name} x${item.qty}`).join(", ")
+          }
+        });
+      }
       markDeleted("bills", id);
       state.bills = state.bills.filter(b => b.id !== id);
       save(true); renderReports();
