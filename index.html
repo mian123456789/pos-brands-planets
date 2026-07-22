@@ -2445,10 +2445,14 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function billTotals(bill) {
       const subtotal = bill.items.reduce((s, i) => s + i.price * i.qty, 0);
       const itemDiscount = bill.items.reduce((s, i) => s + (i.price * i.qty * i.discount / 100), 0);
-      const billLevelDiscount = Number(bill.billDiscount || 0);
+      const hasPercentDiscount = bill.billDiscountPercent !== undefined;
+      const billDiscountPercent = hasPercentDiscount ? Number(bill.billDiscountPercent || 0) : 0;
+      const billLevelDiscount = hasPercentDiscount
+        ? Math.max(0, subtotal - itemDiscount) * Math.max(0, Math.min(100, billDiscountPercent)) / 100
+        : Number(bill.billDiscount || 0);
       const discount = Math.min(subtotal, itemDiscount + billLevelDiscount);
       const total = subtotal - discount;
-      return { subtotal, itemDiscount, billLevelDiscount, discount, total, profit: total };
+      return { subtotal, itemDiscount, billDiscountPercent, billLevelDiscount, discount, total, profit: total };
     }
     function billsFor(date) { return state.bills.filter(b => b.date.slice(0, 10) === date); }
     function salesFor(date) { return billsFor(date).reduce((s, b) => s + billTotals(b).total, 0); }
@@ -2746,7 +2750,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               <div class="field"><label>Payment Method</label><select id="paymentMethod" onchange="paymentMethodChanged()"><option>Cash</option><option>Bank</option></select></div>
               <div class="field"><label>Bank Reference</label><input id="bankRef" placeholder="Write bank/reference details"></div>
               ${field("Received Amount", "receivedAmount", "", "number")}
-              ${field("Discount", "totalDiscount", billDiscount, "number", 'min="0"')}
+              ${field("Discount %", "totalDiscount", billDiscount, "number", 'min="0" max="100" step="0.01"')}
             </div>
             <div id="billSummary" class="summary"></div>
             <button type="button" class="btn orange checkout-btn" ${mustAttend ? "disabled" : ""} onclick="saveBill(true)">Save & Print</button>
@@ -2808,11 +2812,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       document.getElementById("scanInput")?.focus();
     }
     function currentCartTotals() {
-      billDiscount = Number(document.getElementById("totalDiscount")?.value || billDiscount || 0);
+      billDiscount = Math.max(0, Math.min(100, Number(document.getElementById("totalDiscount")?.value || billDiscount || 0)));
       const subtotal = cart.reduce((s, i) => s + i.price * i.qty, 0);
       const itemDiscount = cart.reduce((s, i) => s + i.price * i.qty * i.discount / 100, 0);
-      const discount = Math.min(subtotal, itemDiscount + billDiscount);
-      return { subtotal, itemDiscount, discount, total: subtotal - discount };
+      const billLevelDiscount = Math.max(0, subtotal - itemDiscount) * billDiscount / 100;
+      const discount = Math.min(subtotal, itemDiscount + billLevelDiscount);
+      return { subtotal, itemDiscount, billDiscountPercent: billDiscount, billLevelDiscount, discount, total: subtotal - discount };
     }
     function applyBankReferenceAmount() {
       const bankRef = document.getElementById("bankRef");
@@ -2830,11 +2835,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function updateBillSummary() {
       applyBankReferenceAmount();
-      const { subtotal, discount, total } = currentCartTotals();
+      const { subtotal, discount, total, billDiscountPercent } = currentCartTotals();
       const received = Number(document.getElementById("receivedAmount")?.value || 0);
       document.getElementById("billSummary").innerHTML = `
         <div><span>Subtotal</span><strong>${money(subtotal)}</strong></div>
-        <div><span>Discount</span><strong>${money(discount)}</strong></div>
+        <div><span>Discount (${billDiscountPercent}% bill)</span><strong>${money(discount)}</strong></div>
         <div class="total"><span>Grand Total</span><strong>${money(total)}</strong></div>
         <div><span>Received</span><strong>${money(received)}</strong></div>
         <div><span>Remaining</span><strong>${money(total - received)}</strong></div>`;
@@ -2849,7 +2854,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function renderCart() {
       const editable = document.getElementById("saleMode")?.value === "Online Store";
-      billDiscount = Number(document.getElementById("totalDiscount")?.value || billDiscount || 0);
+      billDiscount = Math.max(0, Math.min(100, Number(document.getElementById("totalDiscount")?.value || billDiscount || 0)));
       document.getElementById("cartList").innerHTML = cart.map(i => `<div class="cart-item">
         <div class="cart-row"><div class="cart-title"><strong>${i.name}</strong><small>${money(i.price)} each</small></div><button class="btn light icon" onclick="removeCart('${i.id}')">x</button></div>
         <div class="cart-controls">
@@ -2893,7 +2898,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         id: uid("b"), date: new Date().toISOString(), cashier: currentUser.username, customerName, customerPhone,
         saleMode: document.getElementById("saleMode").value, paymentMethod: document.getElementById("paymentMethod").value,
         bankRef: document.getElementById("bankRef").value, received: Number(document.getElementById("receivedAmount").value || 0),
-        billDiscount: Number(document.getElementById("totalDiscount").value || 0),
+        billDiscountPercent: Math.max(0, Math.min(100, Number(document.getElementById("totalDiscount").value || 0))),
         items: cart.map(i => ({ ...i }))
       };
       bill.items.forEach(item => {
@@ -3784,7 +3789,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (type === "bills") {
         const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
         const range = periodRange(selectedPeriod);
-        rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Bank","Discount","Total"], ...state.bills.filter(b => dateInRange(b.date.slice(0, 10), range)).map(b => [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,b.bankRef,billTotals(b).discount,billTotals(b).total])];
+        rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Bank","Bill Discount %","Discount Amount","Total"], ...state.bills.filter(b => dateInRange(b.date.slice(0, 10), range)).map(b => {
+          const totals = billTotals(b);
+          return [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,b.bankRef,totals.billDiscountPercent,totals.discount,totals.total];
+        })];
       }
       if (type === "attendance") {
         const selectedPeriod = document.getElementById("attendancePeriod")?.value || sessionStorage.getItem("bp-pos-attendance-period") || "month";
