@@ -932,6 +932,22 @@
       padding-top: 14px;
     }
     .payment-fields .wide { grid-column: 1 / -1; }
+    .percent-input {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .percent-input input {
+      padding-right: 48px;
+    }
+    .percent-input span {
+      position: absolute;
+      right: 14px;
+      color: var(--orange);
+      font-size: 18px;
+      font-weight: 900;
+      pointer-events: none;
+    }
     .cart-list { display: grid; gap: 10px; max-height: 300px; overflow: auto; margin-top: 14px; }
     .cart-item {
       border: 1px solid var(--line);
@@ -2750,7 +2766,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               <div class="field"><label>Payment Method</label><select id="paymentMethod" onchange="paymentMethodChanged()"><option>Cash</option><option>Bank</option></select></div>
               <div class="field"><label>Bank Reference</label><input id="bankRef" placeholder="Write bank/reference details"></div>
               ${field("Received Amount", "receivedAmount", "", "number")}
-              ${field("Discount %", "totalDiscount", billDiscount, "number", 'min="0" max="100" step="0.01"')}
+              <div class="field"><label>Discount %</label><div class="percent-input"><input id="totalDiscount" type="number" value="${billDiscount}" min="0" max="100" step="0.01" inputmode="decimal" oninput="clampBillDiscount(); updateBillSummary()"><span>%</span></div></div>
             </div>
             <div id="billSummary" class="summary"></div>
             <button type="button" class="btn orange checkout-btn" ${mustAttend ? "disabled" : ""} onclick="saveBill(true)">Save & Print</button>
@@ -2832,6 +2848,13 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const bankRef = document.getElementById("bankRef");
       if (paymentMethod?.value === "Cash" && bankRef) bankRef.value = "";
       updateBillSummary();
+    }
+    function clampBillDiscount() {
+      const input = document.getElementById("totalDiscount");
+      if (!input || input.value === "") return;
+      const value = Math.max(0, Math.min(100, Number(input.value || 0)));
+      if (Number(input.value) !== value) input.value = value;
+      billDiscount = value;
     }
     function updateBillSummary() {
       applyBankReferenceAmount();
