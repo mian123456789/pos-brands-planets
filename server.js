@@ -3,9 +3,20 @@ const fs = require("fs");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const STORAGE_DIR = path.join(ROOT, "data");
 const STORAGE_FILE = path.join(STORAGE_DIR, "pos-state.json");
+
+function noCacheHeaders(extra = {}) {
+  return {
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "Surrogate-Control": "no-store",
+    ...extra
+  };
+}
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -24,7 +35,8 @@ function sendJson(res, status, body) {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Accept"
+    "Access-Control-Allow-Headers": "Content-Type, Accept",
+    ...noCacheHeaders()
   });
   res.end(JSON.stringify(body));
 }
@@ -61,10 +73,9 @@ function serveStatic(req, res) {
       res.end("Not found");
       return;
     }
-    res.writeHead(200, {
+    res.writeHead(200, noCacheHeaders({
       "Content-Type": contentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream",
-      "Cache-Control": filePath.endsWith("index.html") ? "no-store" : "public, max-age=3600"
-    });
+    }));
     res.end(data);
   });
 }
@@ -74,6 +85,14 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 204, {});
   }
 
+  if (req.url.split("?")[0] === "/api/health") {
+    return sendJson(res, 200, {
+      ok: true,
+      app: "Brands Planets POS",
+      time: new Date().toISOString()
+    });
+  }
+
   if (req.url.split("?")[0] === "/api/state") {
     fs.mkdirSync(STORAGE_DIR, { recursive: true });
 
@@ -81,10 +100,10 @@ const server = http.createServer(async (req, res) => {
       if (!fs.existsSync(STORAGE_FILE)) {
         return sendJson(res, 200, { state: null, updatedAt: null });
       }
-      res.writeHead(200, {
+      res.writeHead(200, noCacheHeaders({
         "Content-Type": "application/json; charset=utf-8",
         "Access-Control-Allow-Origin": "*"
-      });
+      }));
       return fs.createReadStream(STORAGE_FILE).pipe(res);
     }
 
@@ -108,6 +127,6 @@ const server = http.createServer(async (req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`Brands Planets POS running on http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`Brands Planets POS running on http://${HOST}:${PORT}`);
 });
