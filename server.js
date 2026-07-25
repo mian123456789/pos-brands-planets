@@ -5,7 +5,8 @@ const path = require("path");
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
-const DEFAULT_STORAGE_DIR = process.env.PORT
+const IS_HOSTED_DEPLOYMENT = process.env.PORT || path.basename(ROOT).toLowerCase() === "nodejs";
+const DEFAULT_STORAGE_DIR = IS_HOSTED_DEPLOYMENT
   ? path.resolve(ROOT, "..", "pos-data")
   : path.join(ROOT, "data");
 const STORAGE_DIR = process.env.POS_DATA_DIR

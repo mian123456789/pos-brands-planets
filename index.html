@@ -2135,8 +2135,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         const payload = await response.json();
         if (Object.prototype.hasOwnProperty.call(payload, "state") && !payload.state) {
           cloudOnline = true;
+          if (!forceRemote) return false;
           await pushCloudState();
-          if (showMessage) toast("Cloud storage initialized from this device.");
+          if (showMessage) toast("Cloud storage recovered from this device.");
           return true;
         }
         const remoteState = payload.state || payload;
