@@ -2133,6 +2133,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         const response = await fetchWithTimeout(API_STATE_URL, { method: "GET", headers: { Accept: "application/json" } });
         if (!response.ok) throw new Error(`Cloud responded ${response.status}`);
         const payload = await response.json();
+        if (Object.prototype.hasOwnProperty.call(payload, "state") && !payload.state) {
+          cloudOnline = true;
+          await pushCloudState();
+          if (showMessage) toast("Cloud storage initialized from this device.");
+          return true;
+        }
         const remoteState = payload.state || payload;
         if (!mergeState(remoteState, payload.updatedAt, forceRemote)) throw new Error("Cloud state format is invalid");
         cloudOnline = true;

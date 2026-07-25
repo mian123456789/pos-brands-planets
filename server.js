@@ -5,7 +5,12 @@ const path = require("path");
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
-const STORAGE_DIR = path.join(ROOT, "data");
+const DEFAULT_STORAGE_DIR = process.env.PORT
+  ? path.resolve(ROOT, "..", "pos-data")
+  : path.join(ROOT, "data");
+const STORAGE_DIR = process.env.POS_DATA_DIR
+  ? path.resolve(ROOT, process.env.POS_DATA_DIR)
+  : DEFAULT_STORAGE_DIR;
 const STORAGE_FILE = path.join(STORAGE_DIR, "pos-state.json");
 const STORAGE_TEMP_FILE = path.join(STORAGE_DIR, "pos-state.tmp.json");
 
@@ -137,4 +142,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Brands Planets POS running on http://${HOST}:${PORT}`);
+  console.log(`Persistent POS state: ${STORAGE_FILE}`);
 });
