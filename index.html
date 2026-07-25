@@ -1921,6 +1921,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function periodRange(period = "month") {
       const today = todayKey();
+      if (period === "all") return { start: "0000-01-01", end: "9999-12-31", label: "All Time" };
       if (period === "today") return { start: today, end: today, label: "Today" };
       if (period === "week") {
         const date = dateFromKey(today);
@@ -3073,6 +3074,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <option value="today">Today</option>
             <option value="week">This Week</option>
             <option value="month">This Month</option>
+            <option value="all">All Time</option>
           </select>
           <input id="billSearch" placeholder="Search bills, customer, phone" oninput="renderBillTable()">
         </div>
