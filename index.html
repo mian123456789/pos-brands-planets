@@ -1991,6 +1991,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     let editingProductId = null;
     let lastNotice = "";
     let cloudSaveTimer = null;
+    let cloudPullInFlight = false;
     let cloudOnline = false;
     const inventoryCategories = ["MEN'S", "KID'S", "WOMEN"];
 
@@ -2089,7 +2090,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (immediateCloud) pushCloudState();
       else queueCloudSave();
     }
-    function mergeState(remoteState, remoteUpdatedAt = "") {
+    function mergeState(remoteState, remoteUpdatedAt = "", forceRemote = false) {
       if (!remoteState || !Array.isArray(remoteState.users) || !Array.isArray(remoteState.products)) return false;
       normalizeDeletedRecords(state);
       normalizeDeletedRecords(remoteState);
@@ -2097,7 +2098,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       normalizeNotifications(remoteState);
       const localUpdatedAt = state.updatedAt || localStorage.getItem("bp-pos-local-updated-at") || "";
       const incomingUpdatedAt = remoteState.updatedAt || remoteUpdatedAt || "";
-      if (localUpdatedAt && incomingUpdatedAt && new Date(incomingUpdatedAt) < new Date(localUpdatedAt)) {
+      if (!forceRemote && localUpdatedAt && incomingUpdatedAt && new Date(incomingUpdatedAt) < new Date(localUpdatedAt)) {
         applyDeletedRecords(state);
         pushCloudState();
         return true;
@@ -2116,7 +2117,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
       return true;
     }
-    async function fetchWithTimeout(url, options = {}, timeout = 4500) {
+    async function fetchWithTimeout(url, options = {}, timeout = 12000) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeout);
       try {
@@ -2125,13 +2126,15 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         clearTimeout(timer);
       }
     }
-    async function pullCloudState(showMessage = false) {
+    async function pullCloudState(showMessage = false, forceRemote = false) {
+      if (cloudPullInFlight) return false;
+      cloudPullInFlight = true;
       try {
         const response = await fetchWithTimeout(API_STATE_URL, { method: "GET", headers: { Accept: "application/json" } });
         if (!response.ok) throw new Error(`Cloud responded ${response.status}`);
         const payload = await response.json();
         const remoteState = payload.state || payload;
-        if (!mergeState(remoteState, payload.updatedAt)) throw new Error("Cloud state format is invalid");
+        if (!mergeState(remoteState, payload.updatedAt, forceRemote)) throw new Error("Cloud state format is invalid");
         cloudOnline = true;
         if (showMessage) toast("Cloud data loaded from Hostinger.");
         return true;
@@ -2139,6 +2142,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         cloudOnline = false;
         if (showMessage) toast("Cloud sync unavailable. Using local offline data.");
         return false;
+      } finally {
+        cloudPullInFlight = false;
       }
     }
     async function pushCloudState() {
@@ -2153,7 +2158,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           body: JSON.stringify({ state, updatedAt: state.updatedAt })
         });
         if (!response.ok) throw new Error(`Cloud responded ${response.status}`);
+        const payload = await response.json();
+        if (payload.updatedAt) state.updatedAt = payload.updatedAt;
         cloudOnline = true;
+        localStorage.setItem("bp-pos-state", JSON.stringify(state));
         localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
         return true;
       } catch (error) {
@@ -2163,7 +2171,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function queueCloudSave() {
       clearTimeout(cloudSaveTimer);
-      cloudSaveTimer = setTimeout(() => pushCloudState(), 700);
+      cloudSaveTimer = setTimeout(() => {
+        cloudSaveTimer = null;
+        pushCloudState();
+      }, 700);
     }
     function normalizeSettings() {
       state.settings = { ...seed.settings, ...(state.settings || {}) };
@@ -2332,6 +2343,21 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         document.getElementById("liveClock").textContent = new Date().toLocaleString();
         if (currentUser && activeSection !== "billing") render(activeSection);
       }, 30000);
+      setInterval(() => {
+        if (!currentUser || document.visibilityState !== "visible" || cloudSaveTimer || activeSection === "billing") return;
+        pullCloudState(false).then(loaded => {
+          if (!loaded || !currentUser || activeSection === "billing") return;
+          normalizeDeletedRecords();
+          applyDeletedRecords();
+          normalizeSettings();
+          normalizeInventoryCategories();
+          normalizeUserPermissions();
+          normalizeAttendanceRecords();
+          normalizeStaffRecords();
+          renderNav();
+          render(activeSection);
+        });
+      }, 15000);
     }
     function bindLogin() {
       const lockedUntil = Number(localStorage.getItem("bp-pos-lock") || 0);
@@ -2401,7 +2427,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       });
     }
     async function syncSystem() {
-      const pulled = await pullCloudState(true);
+      const pulled = await pullCloudState(true, true);
       if (!pulled) {
         state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state;
         await pushCloudState();

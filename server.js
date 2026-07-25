@@ -7,6 +7,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const STORAGE_DIR = path.join(ROOT, "data");
 const STORAGE_FILE = path.join(STORAGE_DIR, "pos-state.json");
+const STORAGE_TEMP_FILE = path.join(STORAGE_DIR, "pos-state.tmp.json");
 
 function noCacheHeaders(extra = {}) {
   return {
@@ -113,10 +114,17 @@ const server = http.createServer(async (req, res) => {
         if (!payload || typeof payload !== "object" || !payload.state || typeof payload.state !== "object") {
           return sendJson(res, 400, { error: "Invalid state payload" });
         }
-        payload.updatedAt = payload.updatedAt || new Date().toISOString();
-        fs.writeFileSync(STORAGE_FILE, JSON.stringify(payload, null, 2));
-        return sendJson(res, 200, { ok: true, updatedAt: payload.updatedAt });
+        const updatedAt = new Date().toISOString();
+        const storedPayload = {
+          state: { ...payload.state, updatedAt },
+          updatedAt
+        };
+        fs.writeFileSync(STORAGE_TEMP_FILE, JSON.stringify(storedPayload, null, 2));
+        fs.renameSync(STORAGE_TEMP_FILE, STORAGE_FILE);
+        return sendJson(res, 200, { ok: true, updatedAt });
       } catch (error) {
+        if (fs.existsSync(STORAGE_TEMP_FILE)) fs.rmSync(STORAGE_TEMP_FILE, { force: true });
+        console.error("State save failed:", error);
         return sendJson(res, 400, { error: error.message });
       }
     }
