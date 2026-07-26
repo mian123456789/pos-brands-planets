@@ -1951,9 +1951,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       ],
       bills: [],
       expenses: [],
-      staff: [
-        { id: "s-cashier", name: "cashier", role: "Cashier", phone: "", remarks: "Default staff" }
-      ],
+      staff: [],
       attendance: [],
       stockHistory: [],
       dayClosings: [],
@@ -2243,18 +2241,20 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         state.staff = [];
         changed = true;
       }
+      const staffCountBeforeCleanup = state.staff.length;
+      state.staff = state.staff.filter(staff => staff.id !== "s-cashier" && !["Default staff", "Cashier login"].includes(staff.remarks));
+      if (state.staff.length !== staffCountBeforeCleanup) changed = true;
       applyDeletedRecords(state);
       const deletedStaffNames = new Set((state.deleted.staffNames || []).map(name => String(name).trim().toLowerCase()));
       const seen = new Set(state.staff.map(staff => String(staff.name || "").trim().toLowerCase()).filter(Boolean));
       const addStaff = (name, role = "Cashier", phone = "", remarks = "") => {
         const cleanName = String(name || "").trim();
         const cleanKey = cleanName.toLowerCase();
-        if (!cleanName || deletedStaffNames.has(cleanKey) || seen.has(cleanKey)) return;
+        if (!cleanName || cleanKey === "cashier" || deletedStaffNames.has(cleanKey) || seen.has(cleanKey)) return;
         state.staff.push({ id: uid("s"), name: cleanName, role, phone, remarks });
         seen.add(cleanKey);
         changed = true;
       };
-      state.users.filter(user => user.role === "Cashier").forEach(user => addStaff(user.username, "Cashier", "", "Cashier login"));
       state.attendance.forEach(record => addStaff(record.name || record.username, record.role || "Cashier", "", "From attendance"));
       state.staff.forEach(staff => {
         if (!staff.id) {
@@ -2266,7 +2266,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         staff.phone = staff.phone || "";
         staff.remarks = staff.remarks || "";
       });
-      if (changed) localStorage.setItem("bp-pos-state", JSON.stringify(state));
+      if (changed) {
+        state.updatedAt = new Date().toISOString();
+        localStorage.setItem("bp-pos-state", JSON.stringify(state));
+        localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
+      }
     }
     function can(section) {
       if (currentUser?.role === "Owner") return true;
@@ -3148,13 +3152,13 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const seen = new Set();
       const addStaff = (name, username = name, role = "Cashier") => {
         const cleanName = String(name || "").trim();
-        if (!cleanName || seen.has(cleanName.toLowerCase())) return;
-        seen.add(cleanName.toLowerCase());
+        const cleanKey = cleanName.toLowerCase();
+        if (!cleanName || cleanKey === "cashier" || seen.has(cleanKey)) return;
+        seen.add(cleanKey);
         staff.push({ name: cleanName, username: String(username || cleanName).trim(), role });
       };
       (state.staff || []).forEach(staffMember => addStaff(staffMember.name, staffMember.name, staffMember.role || "Staff"));
       state.attendance.forEach(record => addStaff(record.name || record.username, record.staffUsername || record.username, record.role || "Cashier"));
-      if (!staff.length && currentUser?.role === "Cashier") addStaff(currentUser.username, currentUser.username, currentUser.role);
       return staff.sort((a, b) => a.name.localeCompare(b.name));
     }
     function selectedAttendanceStaff() {
@@ -3179,6 +3183,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const currentRecord = todayAttendance(cashierName);
       const canManage = currentUser?.role === "Owner";
       const staffOptions = attendanceStaffOptions();
+      const hasStaffOptions = staffOptions.length > 0;
       const selectedStaff = sessionStorage.getItem("bp-pos-selected-staff") || currentRecord?.name || staffOptions[0]?.name || "";
       document.getElementById("attendance").innerHTML = `<div class="card">
         <div class="section-title"><h3>Attendance</h3><span class="badge ${needsOut ? "warn" : "good"}">${needsOut ? "Open Attendance" : "Ready"}</span></div>
@@ -3187,10 +3192,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <span>${currentRecord ? `Last in: ${currentRecord.name || currentRecord.username} at ${currentRecord.time || "Absent"}${currentRecord.outTime ? ` - out ${currentRecord.outTime}` : ""}` : "Select staff person and mark attendance"}</span>
           <div class="form-grid" style="margin-top:10px">
             <div class="field wide"><label>Staff Person</label><select id="attendancePersonSelect" onchange="sessionStorage.setItem('bp-pos-selected-staff', this.value)" onkeydown="attendanceNameKey(event)">
-              ${staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}" ${staff.name === selectedStaff ? "selected" : ""}>${staff.name}</option>`).join("")}
+              ${hasStaffOptions ? staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}" ${staff.name === selectedStaff ? "selected" : ""}>${staff.name}</option>`).join("") : `<option value="">No staff added</option>`}
             </select></div>
-            <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()">Mark Present</button></div>
-            <div class="field"><label>&nbsp;</label><button class="btn danger" onclick="markAbsent()">Mark Absent</button></div>
+            <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()" ${hasStaffOptions ? "" : "disabled"}>Mark Present</button></div>
+            <div class="field"><label>&nbsp;</label><button class="btn danger" onclick="markAbsent()" ${hasStaffOptions ? "" : "disabled"}>Mark Absent</button></div>
             <div class="field"><label>&nbsp;</label><button class="btn light" onclick="markOutAttendance()" ${needsOut ? "" : "disabled"}>Mark Out</button></div>
           </div>
         </div>
