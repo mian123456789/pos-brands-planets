@@ -2349,7 +2349,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       });
       setInterval(() => {
         document.getElementById("liveClock").textContent = new Date().toLocaleString();
-        if (currentUser && activeSection !== "billing") render(activeSection);
       }, 30000);
       setInterval(() => {
         if (!currentUser || document.visibilityState !== "visible" || cloudSaveTimer || activeSection === "billing") return;
@@ -2452,7 +2451,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       toast(cloudOnline ? "System synced with Hostinger backend." : "System refreshed locally. Cloud backend unavailable.");
     }
     function logout() {
-      if (markOutRequired()) return showMarkOutPrompt();
+      if (currentUser?.role === "Cashier") return showCashierLogoutPrompt();
       performLogout();
     }
     function performLogout() {
@@ -3169,6 +3168,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       };
     }
     function renderAttendance() {
+      const savedScrollY = window.scrollY;
       const selectedPeriod = document.getElementById("attendancePeriod")?.value || sessionStorage.getItem("bp-pos-attendance-period") || "month";
       sessionStorage.setItem("bp-pos-attendance-period", selectedPeriod);
       const report = buildAttendanceReport(selectedPeriod);
@@ -3183,8 +3183,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       document.getElementById("attendance").innerHTML = `<div class="card">
         <div class="section-title"><h3>Attendance</h3><span class="badge ${needsOut ? "warn" : "good"}">${needsOut ? "Open Attendance" : "Ready"}</span></div>
         <div class="attendance-user-card">
-          <small>${needsMark ? "Mark attendance first" : "Mark another attendance"}</small>
-          <strong>${cashierName}</strong>
+          <small>${needsMark ? "Mark attendance first" : "Staff attendance"}</small>
           <span>${currentRecord ? `Last in: ${currentRecord.name || currentRecord.username} at ${currentRecord.time || "Absent"}${currentRecord.outTime ? ` - out ${currentRecord.outTime}` : ""}` : "Select staff person and mark attendance"}</span>
           <div class="form-grid" style="margin-top:10px">
             <div class="field wide"><label>Staff Person</label><select id="attendancePersonSelect" onchange="sessionStorage.setItem('bp-pos-selected-staff', this.value)" onkeydown="attendanceNameKey(event)">
@@ -3225,7 +3224,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         </tbody></table></div>
       </div>`;
       document.getElementById("attendancePeriod").value = selectedPeriod;
-      setTimeout(() => document.getElementById("attendancePersonSelect")?.focus(), 50);
+      requestAnimationFrame(() => window.scrollTo({ top: savedScrollY, left: 0, behavior: "auto" }));
     }
     function attendanceReportCard(label, value) {
       return `<div class="attendance-report-card"><small>${label}</small><strong>${value}</strong></div>`;
@@ -3417,13 +3416,21 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!skipToast) toast("Out attendance marked.");
       return true;
     }
-    function showMarkOutPrompt() {
+    function showCashierLogoutPrompt() {
+      const needsOut = markOutRequired();
+      const attendedToday = hasAttendanceToday(currentUser?.username);
+      const title = needsOut ? "Complete Attendance" : attendedToday ? "Confirm Logout" : "Attendance Not Marked";
+      const message = needsOut
+        ? "Mark out attendance before logging out, or continue without marking out."
+        : attendedToday
+          ? "Your attendance is already complete. Do you want to log out?"
+          : "No attendance was marked today. You can return to attendance or log out without marking it.";
       document.getElementById("modalRoot").innerHTML = `<div class="modal"><div class="modal-panel small-modal">
-        <div class="section-title"><h3>Mark Out Attendance</h3><button class="btn light icon" onclick="closeModal()">x</button></div>
-        <p class="muted">Before closing the POS, mark your out attendance for today.</p>
+        <div class="section-title"><h3>${title}</h3><button class="btn light icon" onclick="closeModal()">x</button></div>
+        <p class="muted">${message}</p>
         <div class="modal-actions">
-          <button class="btn orange" onclick="markOutAttendance(true); performLogout();">Mark Out & Logout</button>
-          <button class="btn ghost" onclick="performLogout()">Logout Without Mark Out</button>
+          ${needsOut ? `<button class="btn orange" onclick="markOutAttendance(true); performLogout();">Mark Out & Logout</button>` : ""}
+          <button class="btn ${needsOut || !attendedToday ? "ghost" : "orange"}" onclick="performLogout()">${needsOut ? "Logout Without Mark Out" : attendedToday ? "Logout" : "Logout Without Attendance"}</button>
           <button class="btn light" onclick="closeModal()">Cancel</button>
         </div>
       </div></div>`;
