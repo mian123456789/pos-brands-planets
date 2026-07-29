@@ -2510,6 +2510,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const total = subtotal - discount;
       return { subtotal, itemDiscount, billDiscountPercent, billLevelDiscount, discount, total, profit: total };
     }
+    function billPaymentStatus(bill) {
+      if (bill.paymentStatus === "Paid" || bill.paymentStatus === "Pending") return bill.paymentStatus;
+      return Number(bill.received || 0) >= billTotals(bill).total ? "Paid" : "Pending";
+    }
     function billsFor(date) { return state.bills.filter(b => b.date.slice(0, 10) === date); }
     function salesFor(date) { return billsFor(date).reduce((s, b) => s + billTotals(b).total, 0); }
     function expensesFor(date) { return state.expenses.filter(e => e.date === date).reduce((s, e) => s + Number(e.amount), 0); }
@@ -2804,6 +2808,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <div class="payment-fields">
               <div class="field"><label>Sale Mode</label><select id="saleMode" onchange="saleModeChanged()"><option>In Store</option><option>Online Store</option><option>Exchange Item</option></select></div>
               <div class="field"><label>Payment Method</label><select id="paymentMethod" onchange="paymentMethodChanged()"><option>Cash</option><option>Bank</option></select></div>
+              <div class="field"><label>Payment Status</label><select id="paymentStatus" onchange="paymentStatusChanged()"><option>Paid</option><option>Pending</option></select></div>
               <div class="field"><label>Bank Reference</label><input id="bankRef" placeholder="Write bank/reference details"></div>
               ${field("Received Amount", "receivedAmount", "", "number")}
               <div class="field"><label>Discount %</label><div class="percent-input"><input id="totalDiscount" type="number" value="${billDiscount}" min="0" max="100" step="0.01" inputmode="decimal" oninput="clampBillDiscount(); updateBillSummary()"><span>%</span></div></div>
@@ -2818,7 +2823,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       bindBillingEnterFlow();
     }
     function bindBillingEnterFlow() {
-      const order = ["customerName", "customerPhone", "scanInput", "saleMode", "paymentMethod", "bankRef", "receivedAmount", "totalDiscount"];
+      const order = ["customerName", "customerPhone", "scanInput", "saleMode", "paymentMethod", "paymentStatus", "bankRef", "receivedAmount", "totalDiscount"];
       order.forEach((id, index) => {
         const el = document.getElementById(id);
         if (!el || el.dataset.enterBound) return;
@@ -2889,6 +2894,14 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (paymentMethod?.value === "Cash" && bankRef) bankRef.value = "";
       updateBillSummary();
     }
+    function paymentStatusChanged() {
+      const paymentStatus = document.getElementById("paymentStatus");
+      const receivedAmount = document.getElementById("receivedAmount");
+      if (paymentStatus?.value === "Paid" && receivedAmount) {
+        receivedAmount.value = currentCartTotals().total;
+      }
+      updateBillSummary();
+    }
     function clampBillDiscount() {
       const input = document.getElementById("totalDiscount");
       if (!input || input.value === "") return;
@@ -2905,10 +2918,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div><span>Discount (${billDiscountPercent}% bill)</span><strong>${money(discount)}</strong></div>
         <div class="total"><span>Grand Total</span><strong>${money(total)}</strong></div>
         <div><span>Received</span><strong>${money(received)}</strong></div>
-        <div><span>Remaining</span><strong>${money(total - received)}</strong></div>`;
+        <div><span>Remaining</span><strong>${money(Math.max(0, total - received))}</strong></div>
+        <div><span>Status</span><strong><span class="badge ${document.getElementById("paymentStatus")?.value === "Paid" ? "good" : "warn"}">${document.getElementById("paymentStatus")?.value || "Paid"}</span></strong></div>`;
     }
     function bindBillingAmountInputs() {
-      [["receivedAmount", updateBillSummary], ["totalDiscount", updateBillSummary], ["bankRef", updateBillSummary], ["paymentMethod", paymentMethodChanged]].forEach(([id, handler]) => {
+      [["receivedAmount", updateBillSummary], ["totalDiscount", updateBillSummary], ["bankRef", updateBillSummary], ["paymentMethod", paymentMethodChanged], ["paymentStatus", paymentStatusChanged]].forEach(([id, handler]) => {
         const el = document.getElementById(id);
         if (!el || el.dataset.amountBound) return;
         el.dataset.amountBound = "true";
@@ -2960,10 +2974,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const bill = {
         id: uid("b"), date: new Date().toISOString(), cashier: currentUser.username, customerName, customerPhone,
         saleMode: document.getElementById("saleMode").value, paymentMethod: document.getElementById("paymentMethod").value,
+        paymentStatus: document.getElementById("paymentStatus").value,
         bankRef: document.getElementById("bankRef").value, received: Number(document.getElementById("receivedAmount").value || 0),
         billDiscountPercent: Math.max(0, Math.min(100, Number(document.getElementById("totalDiscount").value || 0))),
         items: cart.map(i => ({ ...i }))
       };
+      if (bill.paymentStatus === "Paid") bill.received = Math.max(bill.received, billTotals(bill).total);
       bill.items.forEach(item => {
         const p = state.products.find(x => x.id === item.id);
         if (p) {
@@ -2999,6 +3015,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <div><span>Customer</span><span>${bill.customerName}</span></div>
           <div><span>Phone</span><span>${bill.customerPhone}</span></div>
           <div><span>Mode</span><strong>${bill.saleMode || "In Store"}</strong></div>
+          <div><span>Status</span><strong>${billPaymentStatus(bill)}</strong></div>
         </div>
         <div class="line"></div>
         <table><thead><tr><th>Item</th><th>Qty</th><th>Amt</th></tr></thead><tbody>
@@ -3009,7 +3026,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <div><span>Subtotal</span><strong>${money(t.subtotal)}</strong></div>
           <div class="receipt-grand"><span>Grand Total</span><strong>${money(t.total)}</strong></div>
           <div><span>Received</span><strong>${money(bill.received)}</strong></div>
-          <div><span>Remaining</span><strong>${money(t.total - bill.received)}</strong></div>
+          <div><span>Remaining</span><strong>${money(Math.max(0, t.total - bill.received))}</strong></div>
         </div>
         <div class="line"></div>
         <div class="receipt-meta"><div><span>Payment</span><strong>${bill.paymentMethod} ${bill.bankRef || ""}</strong></div></div>
@@ -3063,12 +3080,16 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const periodSales = periodBills.reduce((s,b)=>s+billTotals(b).total,0);
       const periodExpenses = state.expenses.filter(e => dateInRange(e.date, range)).reduce((s, e) => s + Number(e.amount), 0);
       const payment = ["Cash", "Bank"].map(m => [m, periodBills.filter(b => b.paymentMethod === m).reduce((s,b)=>s+billTotals(b).total,0)]);
+      const paidBills = periodBills.filter(b => billPaymentStatus(b) === "Paid");
+      const pendingBills = periodBills.filter(b => billPaymentStatus(b) === "Pending");
       document.getElementById("reports").innerHTML = `<div class="grid stats">
         ${stat(`${range.label} Sales`, money(periodSales), `${periodBills.length} bills`)}
         ${stat("Date Range", `${range.start}`, `to ${range.end}`)}
         ${stat("Expenses", money(periodExpenses), range.label)}
         ${stat("Net Sales", money(periodSales - periodExpenses), "After expenses")}
         ${stat(`${range.label} Cash vs Bank`, money(payment[0][1]) + " / " + money(payment[1][1]), "Comparison")}
+        ${stat("Paid Bills", paidBills.length, money(paidBills.reduce((sum, bill) => sum + billTotals(bill).total, 0)))}
+        ${stat("Pending Bills", pendingBills.length, money(pendingBills.reduce((sum, bill) => sum + Math.max(0, billTotals(bill).total - Number(bill.received || 0)), 0)) + " due")}
       </div>
       <div class="card" style="margin-top:16px">
         <div class="section-title"><h3>Bill Reports</h3><button class="btn light" onclick="exportCSV('bills')">Export Excel</button></div>
@@ -3093,12 +3114,81 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const q = (document.getElementById("billSearch")?.value || "").toLowerCase();
       const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
       const range = periodRange(selectedPeriod);
-      const rows = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range) && [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef].join(" ").toLowerCase().includes(q)).slice().reverse();
-      document.getElementById("billTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Bill</th><th>Customer</th><th>Cashier</th><th>Payment</th><th>Total</th><th>Actions</th></tr></thead><tbody>
-      ${rows.map(b => `<tr><td>${new Date(b.date).toLocaleString()}</td><td>${b.id}</td><td>${b.customerName}<br>${b.customerPhone}</td><td>${b.cashier}</td><td><span class="badge">${b.saleMode || "In Store"}</span><br>${b.paymentMethod} ${b.bankRef || ""}</td><td>${money(billTotals(b).total)}</td><td><div class="user-actions"><button class="btn light" onclick="printReceiptById('${b.id}', 'customer')">Customer Copy</button><button class="btn light" onclick="printReceiptById('${b.id}', 'cashier')">Cashier Copy</button><button class="btn danger" onclick="deleteBill('${b.id}')">Delete</button></div></td></tr>`).join("") || `<tr><td colspan="7">No bills found.</td></tr>`}
+      const rows = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range) && [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef,billPaymentStatus(b)].join(" ").toLowerCase().includes(q)).slice().reverse();
+      document.getElementById("billTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Bill</th><th>Customer</th><th>Cashier</th><th>Payment</th><th>Status</th><th>Total</th><th>Actions</th></tr></thead><tbody>
+      ${rows.map(b => {
+        const status = billPaymentStatus(b);
+        return `<tr><td>${new Date(b.date).toLocaleString()}</td><td>${b.id}</td><td>${escapeHtml(b.customerName)}<br>${escapeHtml(b.customerPhone)}</td><td>${escapeHtml(b.cashier)}</td><td><span class="badge">${b.saleMode || "In Store"}</span><br>${b.paymentMethod} ${escapeHtml(b.bankRef || "")}</td><td><span class="badge ${status === "Paid" ? "good" : "warn"}">${status}</span></td><td>${money(billTotals(b).total)}</td><td><div class="user-actions"><button class="btn light" onclick="openBillModal('${b.id}')">Edit</button><button class="btn light" onclick="printReceiptById('${b.id}', 'customer')">Customer Copy</button><button class="btn light" onclick="printReceiptById('${b.id}', 'cashier')">Cashier Copy</button><button class="btn danger" onclick="deleteBill('${b.id}')">Delete</button></div></td></tr>`;
+      }).join("") || `<tr><td colspan="8">No bills found.</td></tr>`}
       </tbody></table></div>`;
     }
     function printReceiptById(id, copyType = "customer") { const b = state.bills.find(x => x.id === id); if (b) printReceipt(b, copyType); }
+    function openBillModal(id) {
+      if (!can("reports")) return toast("You do not have permission to edit bills.");
+      const bill = state.bills.find(item => item.id === id);
+      if (!bill) return toast("Bill not found.");
+      const status = billPaymentStatus(bill);
+      document.getElementById("modalRoot").innerHTML = `<div class="modal"><div class="modal-panel">
+        <div class="section-title"><div><h3>Edit Bill</h3><small class="muted">${bill.id}</small></div><button class="btn light icon" onclick="closeModal()">x</button></div>
+        <form id="billEditForm" class="form-grid">
+          ${field("Customer Name", "editBillCustomer", escapeHtml(bill.customerName))}
+          ${field("Phone Number", "editBillPhone", escapeHtml(bill.customerPhone), "tel", 'maxlength="11" inputmode="numeric"')}
+          <div class="field"><label>Sale Mode</label><select id="editBillSaleMode">${["In Store", "Online Store", "Exchange Item"].map(mode => `<option ${bill.saleMode === mode ? "selected" : ""}>${mode}</option>`).join("")}</select></div>
+          <div class="field"><label>Payment Method</label><select id="editBillPaymentMethod" onchange="editBillPaymentMethodChanged()">${["Cash", "Bank"].map(method => `<option ${bill.paymentMethod === method ? "selected" : ""}>${method}</option>`).join("")}</select></div>
+          <div class="field"><label>Payment Status</label><select id="editBillPaymentStatus">${["Paid", "Pending"].map(value => `<option ${status === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>
+          ${field("Bank Reference", "editBillBankRef", escapeHtml(bill.bankRef || ""))}
+          ${field("Received Amount", "editBillReceived", Number(bill.received || 0), "number", 'min="0" step="0.01"')}
+          ${field("Discount %", "editBillDiscount", billTotals(bill).billDiscountPercent, "number", 'min="0" max="100" step="0.01"')}
+          <div class="field wide"><div class="summary">
+            <div><span>Bill Total</span><strong>${money(billTotals(bill).total)}</strong></div>
+            <div><span>Items</span><strong>${bill.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)}</strong></div>
+          </div></div>
+          <div id="billEditMessage" class="alert hidden wide"></div>
+          <div class="field wide"><button class="btn orange" type="submit">Save Bill Changes</button></div>
+        </form>
+      </div></div>`;
+      document.getElementById("billEditForm").onsubmit = event => saveBillEdit(event, id);
+    }
+    function editBillPaymentMethodChanged() {
+      const method = document.getElementById("editBillPaymentMethod");
+      const bankReference = document.getElementById("editBillBankRef");
+      if (method?.value === "Cash" && bankReference) bankReference.value = "";
+    }
+    function saveBillEdit(event, id) {
+      event.preventDefault();
+      if (!can("reports")) return toast("You do not have permission to edit bills.");
+      const bill = state.bills.find(item => item.id === id);
+      if (!bill) return toast("Bill not found.");
+      const message = document.getElementById("billEditMessage");
+      const customerName = document.getElementById("editBillCustomer").value.trim();
+      const customerPhone = document.getElementById("editBillPhone").value.trim();
+      const received = Number(document.getElementById("editBillReceived").value || 0);
+      const discount = Number(document.getElementById("editBillDiscount").value || 0);
+      if (!customerName || !/^\d{11}$/.test(customerPhone)) {
+        message.textContent = "Customer name and 11 digit phone number are required.";
+        message.classList.remove("hidden");
+        return;
+      }
+      if (!Number.isFinite(received) || received < 0 || !Number.isFinite(discount) || discount < 0 || discount > 100) {
+        message.textContent = "Enter a valid received amount and discount from 0 to 100%.";
+        message.classList.remove("hidden");
+        return;
+      }
+      bill.customerName = customerName;
+      bill.customerPhone = customerPhone;
+      bill.saleMode = document.getElementById("editBillSaleMode").value;
+      bill.paymentMethod = document.getElementById("editBillPaymentMethod").value;
+      bill.paymentStatus = document.getElementById("editBillPaymentStatus").value;
+      bill.bankRef = bill.paymentMethod === "Bank" ? document.getElementById("editBillBankRef").value.trim() : "";
+      bill.billDiscountPercent = discount;
+      bill.received = bill.paymentStatus === "Paid" ? Math.max(received, billTotals(bill).total) : received;
+      bill.editedAt = new Date().toISOString();
+      bill.editedBy = currentUser.username;
+      save(true);
+      closeModal();
+      renderReports();
+      toast("Bill updated successfully.");
+    }
     function deleteBill(id) {
       if (!can("reports")) return toast("You do not have permission to delete bills.");
       const bill = state.bills.find(b => b.id === id);
@@ -3862,9 +3952,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (type === "bills") {
         const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
         const range = periodRange(selectedPeriod);
-        rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Bank","Bill Discount %","Discount Amount","Total"], ...state.bills.filter(b => dateInRange(b.date.slice(0, 10), range)).map(b => {
+        rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Payment Status","Bank","Received","Remaining","Bill Discount %","Discount Amount","Total"], ...state.bills.filter(b => dateInRange(b.date.slice(0, 10), range)).map(b => {
           const totals = billTotals(b);
-          return [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,b.bankRef,totals.billDiscountPercent,totals.discount,totals.total];
+          return [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,billPaymentStatus(b),b.bankRef,b.received,Math.max(0, totals.total - Number(b.received || 0)),totals.billDiscountPercent,totals.discount,totals.total];
         })];
       }
       if (type === "attendance") {
