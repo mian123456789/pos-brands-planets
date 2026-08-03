@@ -93,29 +93,50 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.url.split("?")[0] === "/api/health") {
+    let storageReady = true;
+    let storageError = "";
+    try {
+      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+      fs.accessSync(STORAGE_DIR, fs.constants.R_OK | fs.constants.W_OK);
+    } catch (error) {
+      storageReady = false;
+      storageError = error.message;
+    }
     return sendJson(res, 200, {
       ok: true,
       app: "Brands Planets POS",
-      time: new Date().toISOString()
+      time: new Date().toISOString(),
+      storageReady,
+      dataFileExists: fs.existsSync(STORAGE_FILE),
+      storageError
     });
   }
 
   if (req.url.split("?")[0] === "/api/state") {
-    fs.mkdirSync(STORAGE_DIR, { recursive: true });
-
     if (req.method === "GET") {
-      if (!fs.existsSync(STORAGE_FILE)) {
-        return sendJson(res, 200, { state: null, updatedAt: null });
+      try {
+        fs.mkdirSync(STORAGE_DIR, { recursive: true });
+        if (!fs.existsSync(STORAGE_FILE)) {
+          return sendJson(res, 200, { state: null, updatedAt: null });
+        }
+        const storedState = fs.readFileSync(STORAGE_FILE);
+        res.writeHead(200, noCacheHeaders({
+          "Content-Type": "application/json; charset=utf-8",
+          "Access-Control-Allow-Origin": "*"
+        }));
+        return res.end(storedState);
+      } catch (error) {
+        console.error("State read failed:", error);
+        return sendJson(res, 500, {
+          error: "Persistent POS storage is unavailable.",
+          detail: error.message
+        });
       }
-      res.writeHead(200, noCacheHeaders({
-        "Content-Type": "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": "*"
-      }));
-      return fs.createReadStream(STORAGE_FILE).pipe(res);
     }
 
     if (req.method === "POST") {
       try {
+        fs.mkdirSync(STORAGE_DIR, { recursive: true });
         const payload = JSON.parse(await readRequestBody(req));
         if (!payload || typeof payload !== "object" || !payload.state || typeof payload.state !== "object") {
           return sendJson(res, 400, { error: "Invalid state payload" });
