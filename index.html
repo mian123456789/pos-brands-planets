@@ -1900,13 +1900,26 @@
   <div id="printArea" class="hidden"></div>
   <script>
 const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFractionDigits: 0 });
-    const todayKey = () => new Date().toISOString().slice(0, 10);
-    const monthKey = () => new Date().toISOString().slice(0, 7);
-    const yesterdayKey = () => {
-      const d = new Date();
-      d.setDate(d.getDate() - 1);
-      return d.toISOString().slice(0, 10);
-    };
+    const POS_TIME_ZONE = "Asia/Karachi";
+    function localDateKey(value = new Date()) {
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA-u-ca-gregory", {
+        timeZone: POS_TIME_ZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(date).map(part => [part.type, part.value]));
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    }
+    function recordDateKey(value) {
+      const text = String(value || "");
+      if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+      return localDateKey(text);
+    }
+    const todayKey = () => localDateKey();
+    const monthKey = () => todayKey().slice(0, 7);
+    const yesterdayKey = () => addDaysKey(todayKey(), -1);
     function dateFromKey(key) {
       const [year, month, day] = key.split("-").map(Number);
       return new Date(Date.UTC(year, month - 1, day));
@@ -2589,7 +2602,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (bill.paymentStatus === "Paid" || bill.paymentStatus === "Pending") return bill.paymentStatus;
       return Number(bill.received || 0) >= billTotals(bill).total ? "Paid" : "Pending";
     }
-    function billsFor(date) { return state.bills.filter(b => b.date.slice(0, 10) === date); }
+    function billsFor(date) { return state.bills.filter(b => recordDateKey(b.date) === date); }
     function salesFor(date) { return billsFor(date).reduce((s, b) => s + billTotals(b).total, 0); }
     function expensesFor(date) { return state.expenses.filter(e => e.date === date).reduce((s, e) => s + Number(e.amount), 0); }
 
@@ -2597,14 +2610,14 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const today = todayKey();
       const month = monthKey();
       const todayBills = billsFor(today);
-      const monthBills = state.bills.filter(b => b.date.slice(0, 7) === month);
+      const monthBills = state.bills.filter(b => recordDateKey(b.date).slice(0, 7) === month);
       const profit = todayBills.reduce((s, b) => s + billTotals(b).profit, 0);
       const low = state.products.filter(p => Number(p.stock) <= 5);
       const labels = [...Array(7)].map((_, i) => {
         const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toISOString().slice(5, 10);
       });
       const values = [...Array(7)].map((_, i) => {
-        const d = new Date(); d.setDate(d.getDate() - (6 - i)); return salesFor(d.toISOString().slice(0, 10));
+        const d = new Date(); d.setDate(d.getDate() - (6 - i)); return salesFor(localDateKey(d));
       });
       const weeklyTotal = values.reduce((sum, value) => sum + value, 0);
       const bestDayValue = Math.max(...values, 0);
@@ -3151,7 +3164,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
       sessionStorage.setItem("bp-pos-report-period", selectedPeriod);
       const range = periodRange(selectedPeriod);
-      const periodBills = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range));
+      const periodBills = state.bills.filter(b => dateInRange(recordDateKey(b.date), range));
       const periodSales = periodBills.reduce((s,b)=>s+billTotals(b).total,0);
       const periodExpenses = state.expenses.filter(e => dateInRange(e.date, range)).reduce((s, e) => s + Number(e.amount), 0);
       const payment = ["Cash", "Bank"].map(m => [m, periodBills.filter(b => b.paymentMethod === m).reduce((s,b)=>s+billTotals(b).total,0)]);
@@ -3189,7 +3202,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const q = (document.getElementById("billSearch")?.value || "").toLowerCase();
       const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
       const range = periodRange(selectedPeriod);
-      const rows = state.bills.filter(b => dateInRange(b.date.slice(0, 10), range) && [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef,billPaymentStatus(b)].join(" ").toLowerCase().includes(q)).slice().reverse();
+      const rows = state.bills.filter(b => dateInRange(recordDateKey(b.date), range) && [b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode,b.paymentMethod,b.bankRef,billPaymentStatus(b)].join(" ").toLowerCase().includes(q)).slice().reverse();
       document.getElementById("billTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Bill</th><th>Customer</th><th>Cashier</th><th>Payment</th><th>Status</th><th>Total</th><th>Actions</th></tr></thead><tbody>
       ${rows.map(b => {
         const status = billPaymentStatus(b);
@@ -3608,8 +3621,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
 
     function renderDayClose() {
       const today = todayKey();
-      const cash = state.bills.filter(b => b.date.slice(0,10) === today && b.paymentMethod === "Cash").reduce((s,b)=>s+billTotals(b).total,0);
-      const bank = state.bills.filter(b => b.date.slice(0,10) === today && b.paymentMethod === "Bank").reduce((s,b)=>s+billTotals(b).total,0);
+      const cash = state.bills.filter(b => recordDateKey(b.date) === today && b.paymentMethod === "Cash").reduce((s,b)=>s+billTotals(b).total,0);
+      const bank = state.bills.filter(b => recordDateKey(b.date) === today && b.paymentMethod === "Bank").reduce((s,b)=>s+billTotals(b).total,0);
       const totalSales = cash + bank;
       const exp = expensesFor(today);
       const afterExpense = totalSales - exp;
@@ -3857,8 +3870,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function closeDay() {
       if (!requireOwner()) return;
       const today = todayKey();
-      const cash = state.bills.filter(b => b.date.slice(0,10) === today && b.paymentMethod === "Cash").reduce((s,b)=>s+billTotals(b).total,0);
-      const bank = state.bills.filter(b => b.date.slice(0,10) === today && b.paymentMethod === "Bank").reduce((s,b)=>s+billTotals(b).total,0);
+      const cash = state.bills.filter(b => recordDateKey(b.date) === today && b.paymentMethod === "Cash").reduce((s,b)=>s+billTotals(b).total,0);
+      const bank = state.bills.filter(b => recordDateKey(b.date) === today && b.paymentMethod === "Bank").reduce((s,b)=>s+billTotals(b).total,0);
       const totalSales = cash + bank;
       const expenses = expensesFor(today);
       const afterExpense = totalSales - expenses;
@@ -4027,7 +4040,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (type === "bills") {
         const selectedPeriod = document.getElementById("reportPeriod")?.value || "today";
         const range = periodRange(selectedPeriod);
-        rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Payment Status","Bank","Received","Remaining","Bill Discount %","Discount Amount","Total"], ...state.bills.filter(b => dateInRange(b.date.slice(0, 10), range)).map(b => {
+        rows = [["Date","Bill","Customer","Phone","Cashier","Sale Mode","Payment","Payment Status","Bank","Received","Remaining","Bill Discount %","Discount Amount","Total"], ...state.bills.filter(b => dateInRange(recordDateKey(b.date), range)).map(b => {
           const totals = billTotals(b);
           return [b.date,b.id,b.customerName,b.customerPhone,b.cashier,b.saleMode || "In Store",b.paymentMethod,billPaymentStatus(b),b.bankRef,b.received,Math.max(0, totals.total - Number(b.received || 0)),totals.billDiscountPercent,totals.discount,totals.total];
         })];
