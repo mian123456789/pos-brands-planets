@@ -1992,7 +1992,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     let cloudSaveTimer = null;
     let cloudPullInFlight = false;
     let cloudOnline = false;
+    let cloudMergeNeedsPush = false;
+    let persistedStateSnapshot = JSON.parse(JSON.stringify(state));
     const inventoryCategories = ["MEN'S", "KID'S", "WOMEN"];
+    const syncedCollections = ["users", "products", "bills", "attendance", "expenses", "staff", "stockHistory", "dayClosings", "notifications"];
 
     const defaultCashierPermissions = ["dashboard", "billing", "reports", "attendance", "expenses"];
     const permissionLabels = {
@@ -2078,13 +2081,70 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!deleted[bucket].includes(cleanValue)) deleted[bucket].push(cleanValue);
     }
 
+    function syncRecordKey(collection, item) {
+      if (!item) return "";
+      if (item.id) return String(item.id);
+      if (collection === "dayClosings") return String(item.date || "");
+      if (collection === "stockHistory") return [item.date, item.product, item.change, item.user, item.remarks].join("|");
+      return String(item.date || "");
+    }
+    function comparableValue(value) {
+      if (!value || typeof value !== "object") return JSON.stringify(value);
+      const copy = Array.isArray(value) ? value.map(item => ({ ...item })) : { ...value };
+      if (!Array.isArray(copy)) delete copy.updatedAt;
+      else copy.forEach(item => { if (item && typeof item === "object") delete item.updatedAt; });
+      return JSON.stringify(copy);
+    }
+    function recordTimestamp(item) {
+      const value = item?.updatedAt || item?.editedAt || (item?.id?.startsWith("n") ? item.date : "");
+      const time = value ? new Date(value).getTime() : 0;
+      return Number.isFinite(time) ? time : 0;
+    }
+    function stampChangedRecords(now) {
+      syncedCollections.forEach(collection => {
+        const previous = new Map((persistedStateSnapshot?.[collection] || []).map(item => [syncRecordKey(collection, item), item]));
+        (state[collection] || []).forEach(item => {
+          const oldItem = previous.get(syncRecordKey(collection, item));
+          if (!oldItem || comparableValue(oldItem) !== comparableValue(item)) item.updatedAt = now;
+        });
+      });
+      if (comparableValue(persistedStateSnapshot?.settings || {}) !== comparableValue(state.settings || {})) {
+        state.settings.updatedAt = now;
+      }
+    }
+    function rememberPersistedState() {
+      persistedStateSnapshot = JSON.parse(JSON.stringify(state));
+    }
+    function mergeRecordCollection(collection, localRows = [], remoteRows = []) {
+      const merged = new Map();
+      remoteRows.forEach(item => merged.set(syncRecordKey(collection, item), item));
+      localRows.forEach(localItem => {
+        const key = syncRecordKey(collection, localItem);
+        if (!key || !merged.has(key)) {
+          if (key) merged.set(key, localItem);
+          return;
+        }
+        const remoteItem = merged.get(key);
+        const localTime = recordTimestamp(localItem);
+        const remoteTime = recordTimestamp(remoteItem);
+        if (localTime && (!remoteTime || localTime > remoteTime)) merged.set(key, localItem);
+      });
+      return [...merged.values()];
+    }
+    function latestIso(...values) {
+      return values.filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0] || new Date().toISOString();
+    }
+
     function save(immediateCloud = false) {
       normalizeDeletedRecords(state);
       normalizeNotifications(state);
       applyDeletedRecords(state);
-      state.updatedAt = new Date().toISOString();
+      const now = new Date().toISOString();
+      stampChangedRecords(now);
+      state.updatedAt = now;
       localStorage.setItem("bp-pos-state", JSON.stringify(state));
       localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
+      rememberPersistedState();
       window.dispatchEvent(new Event("storage-lite"));
       if (immediateCloud) pushCloudState();
       else queueCloudSave();
@@ -2097,23 +2157,33 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       normalizeNotifications(remoteState);
       const localUpdatedAt = state.updatedAt || localStorage.getItem("bp-pos-local-updated-at") || "";
       const incomingUpdatedAt = remoteState.updatedAt || remoteUpdatedAt || "";
-      if (!forceRemote && localUpdatedAt && incomingUpdatedAt && new Date(incomingUpdatedAt) < new Date(localUpdatedAt)) {
-        applyDeletedRecords(state);
-        pushCloudState();
-        return true;
-      }
+      const remoteSettingsTime = recordTimestamp(remoteState.settings);
+      const localSettingsTime = recordTimestamp(state.settings);
+      const mergedSettings = localSettingsTime > remoteSettingsTime
+        ? { ...seed.settings, ...(remoteState.settings || {}), ...(state.settings || {}) }
+        : { ...seed.settings, ...(state.settings || {}), ...(remoteState.settings || {}) };
       const mergedState = {
         ...seed,
         ...remoteState,
+        users: mergeRecordCollection("users", state.users, remoteState.users),
+        products: mergeRecordCollection("products", state.products, remoteState.products),
+        bills: mergeRecordCollection("bills", state.bills, remoteState.bills),
+        attendance: mergeRecordCollection("attendance", state.attendance, remoteState.attendance),
+        expenses: mergeRecordCollection("expenses", state.expenses, remoteState.expenses),
+        staff: mergeRecordCollection("staff", state.staff, remoteState.staff),
+        stockHistory: mergeRecordCollection("stockHistory", state.stockHistory, remoteState.stockHistory),
+        dayClosings: mergeRecordCollection("dayClosings", state.dayClosings, remoteState.dayClosings),
+        notifications: mergeRecordCollection("notifications", state.notifications, remoteState.notifications).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 100),
         deleted: mergeDeletedRecords(state.deleted, remoteState.deleted),
-        notifications: mergeNotifications(state.notifications, remoteState.notifications),
-        updatedAt: incomingUpdatedAt || remoteState.updatedAt || new Date().toISOString(),
-        settings: { ...seed.settings, ...(remoteState.settings || {}) }
+        updatedAt: latestIso(localUpdatedAt, incomingUpdatedAt),
+        settings: mergedSettings
       };
       applyDeletedRecords(mergedState);
+      cloudMergeNeedsPush = comparableValue({ ...remoteState, updatedAt: "" }) !== comparableValue({ ...mergedState, updatedAt: "" });
       state = mergedState;
       localStorage.setItem("bp-pos-state", JSON.stringify(state));
       localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
+      rememberPersistedState();
       return true;
     }
     async function fetchWithTimeout(url, options = {}, timeout = 12000) {
@@ -2142,6 +2212,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         const remoteState = payload.state || payload;
         if (!mergeState(remoteState, payload.updatedAt, forceRemote)) throw new Error("Cloud state format is invalid");
         cloudOnline = true;
+        if (cloudMergeNeedsPush && !forceRemote) queueCloudSave();
         if (showMessage) toast("Cloud data loaded from Hostinger.");
         return true;
       } catch (error) {
@@ -2165,10 +2236,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         });
         if (!response.ok) throw new Error(`Cloud responded ${response.status}`);
         const payload = await response.json();
-        if (payload.updatedAt) state.updatedAt = payload.updatedAt;
+        if (payload.state) mergeState(payload.state, payload.updatedAt, true);
+        else if (payload.updatedAt) state.updatedAt = payload.updatedAt;
         cloudOnline = true;
         localStorage.setItem("bp-pos-state", JSON.stringify(state));
         localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
+        rememberPersistedState();
         return true;
       } catch (error) {
         cloudOnline = false;
@@ -2441,6 +2514,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const pulled = await pullCloudState(true, true);
       if (!pulled) {
         state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state;
+        await pushCloudState();
+      } else if (cloudMergeNeedsPush) {
         await pushCloudState();
       }
       normalizeDeletedRecords();

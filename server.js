@@ -63,6 +63,88 @@ function readRequestBody(req) {
   });
 }
 
+const syncedCollections = ["users", "products", "bills", "attendance", "expenses", "staff", "stockHistory", "dayClosings", "notifications"];
+const deletedBuckets = ["products", "bills", "attendance", "expenses", "staff", "staffNames", "dayClosings", "users"];
+
+function syncRecordKey(collection, item) {
+  if (!item) return "";
+  if (item.id) return String(item.id);
+  if (collection === "dayClosings") return String(item.date || "");
+  if (collection === "stockHistory") return [item.date, item.product, item.change, item.user, item.remarks].join("|");
+  return String(item.date || "");
+}
+
+function recordTimestamp(item) {
+  const value = item?.updatedAt || item?.editedAt || (String(item?.id || "").startsWith("n") ? item.date : "");
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function mergeRecordCollection(collection, storedRows = [], incomingRows = []) {
+  const merged = new Map();
+  storedRows.forEach(item => merged.set(syncRecordKey(collection, item), item));
+  incomingRows.forEach(incomingItem => {
+    const key = syncRecordKey(collection, incomingItem);
+    if (!key || !merged.has(key)) {
+      if (key) merged.set(key, incomingItem);
+      return;
+    }
+    const storedItem = merged.get(key);
+    const incomingTime = recordTimestamp(incomingItem);
+    const storedTime = recordTimestamp(storedItem);
+    if (incomingTime && (!storedTime || incomingTime > storedTime)) merged.set(key, incomingItem);
+  });
+  return [...merged.values()];
+}
+
+function mergeDeletedRecords(storedDeleted = {}, incomingDeleted = {}) {
+  const merged = {};
+  deletedBuckets.forEach(bucket => {
+    merged[bucket] = Array.from(new Set([...(storedDeleted[bucket] || []), ...(incomingDeleted[bucket] || [])].map(String)));
+  });
+  return merged;
+}
+
+function applyDeletedRecords(target) {
+  const deleted = mergeDeletedRecords(target.deleted, {});
+  const deletedStaffNames = new Set(deleted.staffNames.map(name => String(name).trim().toLowerCase()));
+  const bucketByCollection = {
+    users: "users",
+    products: "products",
+    bills: "bills",
+    attendance: "attendance",
+    expenses: "expenses",
+    staff: "staff",
+    dayClosings: "dayClosings"
+  };
+  Object.entries(bucketByCollection).forEach(([collection, bucket]) => {
+    target[collection] = (target[collection] || []).filter(item => !deleted[bucket].includes(syncRecordKey(collection, item)));
+  });
+  target.staff = (target.staff || []).filter(item => !deletedStaffNames.has(String(item.name || "").trim().toLowerCase()));
+  target.deleted = deleted;
+  return target;
+}
+
+function mergePosStates(storedState, incomingState, updatedAt) {
+  if (!storedState) return applyDeletedRecords({ ...incomingState, updatedAt });
+  const storedSettingsTime = recordTimestamp(storedState.settings);
+  const incomingSettingsTime = recordTimestamp(incomingState.settings);
+  const merged = {
+    ...incomingState,
+    ...storedState,
+    updatedAt,
+    deleted: mergeDeletedRecords(storedState.deleted, incomingState.deleted),
+    settings: incomingSettingsTime > storedSettingsTime
+      ? { ...(storedState.settings || {}), ...(incomingState.settings || {}) }
+      : { ...(incomingState.settings || {}), ...(storedState.settings || {}) }
+  };
+  syncedCollections.forEach(collection => {
+    merged[collection] = mergeRecordCollection(collection, storedState[collection], incomingState[collection]);
+  });
+  merged.notifications = (merged.notifications || []).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 100);
+  return applyDeletedRecords(merged);
+}
+
 function serveStatic(req, res) {
   const urlPath = decodeURIComponent(req.url.split("?")[0]);
   const requested = urlPath === "/" ? "/index.html" : urlPath;
@@ -142,13 +224,19 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { error: "Invalid state payload" });
         }
         const updatedAt = new Date().toISOString();
+        let storedState = null;
+        if (fs.existsSync(STORAGE_FILE)) {
+          const storedPayload = JSON.parse(fs.readFileSync(STORAGE_FILE, "utf8"));
+          storedState = storedPayload.state || storedPayload;
+        }
+        const mergedState = mergePosStates(storedState, payload.state, updatedAt);
         const storedPayload = {
-          state: { ...payload.state, updatedAt },
+          state: mergedState,
           updatedAt
         };
         fs.writeFileSync(STORAGE_TEMP_FILE, JSON.stringify(storedPayload, null, 2));
         fs.renameSync(STORAGE_TEMP_FILE, STORAGE_FILE);
-        return sendJson(res, 200, { ok: true, updatedAt });
+        return sendJson(res, 200, { ok: true, updatedAt, state: mergedState });
       } catch (error) {
         if (fs.existsSync(STORAGE_TEMP_FILE)) fs.rmSync(STORAGE_TEMP_FILE, { force: true });
         console.error("State save failed:", error);
