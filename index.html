@@ -815,6 +815,16 @@
     }
     .form-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; }
     .form-grid .wide { grid-column: span 2; }
+    .bill-edit-items { grid-column: 1 / -1; min-width: 0; }
+    .bill-edit-items > label { display: block; margin-bottom: 8px; }
+    .bill-edit-items table { min-width: 720px; }
+    .bill-edit-items th:nth-child(1) { width: 34%; }
+    .bill-edit-items th:nth-child(2),
+    .bill-edit-items th:nth-child(3),
+    .bill-edit-items th:nth-child(4) { width: 15%; }
+    .bill-edit-items input { min-height: 42px; padding: 9px 10px; border-radius: 9px; }
+    .bill-edit-line-amount { color: var(--blue); font-weight: 900; white-space: nowrap; }
+    .bill-edit-summary { grid-column: 1 / -1; }
     .modal {
       position: fixed;
       inset: 0;
@@ -2587,8 +2597,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
 
     function billTotals(bill) {
-      const subtotal = bill.items.reduce((s, i) => s + i.price * i.qty, 0);
-      const itemDiscount = bill.items.reduce((s, i) => s + (i.price * i.qty * i.discount / 100), 0);
+      const items = Array.isArray(bill.items) ? bill.items : [];
+      const subtotal = items.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 0), 0);
+      const itemDiscount = items.reduce((s, i) => s + (Number(i.price || 0) * Number(i.qty || 0) * Number(i.discount || 0) / 100), 0);
       const hasPercentDiscount = bill.billDiscountPercent !== undefined;
       const billDiscountPercent = hasPercentDiscount ? Number(bill.billDiscountPercent || 0) : 0;
       const billLevelDiscount = hasPercentDiscount
@@ -3216,6 +3227,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const bill = state.bills.find(item => item.id === id);
       if (!bill) return toast("Bill not found.");
       const status = billPaymentStatus(bill);
+      const items = Array.isArray(bill.items) ? bill.items : [];
       document.getElementById("modalRoot").innerHTML = `<div class="modal"><div class="modal-panel">
         <div class="section-title"><div><h3>Edit Bill</h3><small class="muted">${bill.id}</small></div><button class="btn light icon" onclick="closeModal()">x</button></div>
         <form id="billEditForm" class="form-grid">
@@ -3226,16 +3238,65 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <div class="field"><label>Payment Status</label><select id="editBillPaymentStatus">${["Paid", "Pending"].map(value => `<option ${status === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>
           ${field("Bank Reference", "editBillBankRef", escapeHtml(bill.bankRef || ""))}
           ${field("Received Amount", "editBillReceived", Number(bill.received || 0), "number", 'min="0" step="0.01"')}
-          ${field("Discount %", "editBillDiscount", billTotals(bill).billDiscountPercent, "number", 'min="0" max="100" step="0.01"')}
-          <div class="field wide"><div class="summary">
-            <div><span>Bill Total</span><strong>${money(billTotals(bill).total)}</strong></div>
-            <div><span>Items</span><strong>${bill.items.reduce((sum, item) => sum + Number(item.qty || 0), 0)}</strong></div>
+          ${field("Discount %", "editBillDiscount", billTotals(bill).billDiscountPercent, "number", `min="0" max="100" step="0.01" oninput="updateBillEditTotals('${id}')"`)}
+          <div class="field bill-edit-items">
+            <label>Complete Bill Items</label>
+            <div class="table-wrap"><table><thead><tr><th>Item Name</th><th>Qty</th><th>Unit Price</th><th>Discount %</th><th>Amount</th></tr></thead><tbody>
+              ${items.map((item, index) => `<tr>
+                <td><input id="editBillItemName${index}" value="${escapeHtml(item.name || "")}" maxlength="120" oninput="updateBillEditTotals('${id}')"></td>
+                <td><input id="editBillItemQty${index}" type="number" min="1" step="1" value="${Number(item.qty || 0)}" oninput="updateBillEditTotals('${id}')"></td>
+                <td><input id="editBillItemPrice${index}" type="number" min="0" step="0.01" value="${Number(item.price || 0)}" oninput="updateBillEditTotals('${id}')"></td>
+                <td><input id="editBillItemDiscount${index}" type="number" min="0" max="100" step="0.01" value="${Number(item.discount || 0)}" oninput="updateBillEditTotals('${id}')"></td>
+                <td><span class="bill-edit-line-amount" id="editBillItemAmount${index}">${money(Number(item.price || 0) * Number(item.qty || 0) * (1 - Number(item.discount || 0) / 100))}</span></td>
+              </tr>`).join("") || `<tr><td colspan="5">No bill items found.</td></tr>`}
+            </tbody></table></div>
+          </div>
+          <div class="bill-edit-summary"><div class="summary">
+            <div><span>Subtotal</span><strong id="editBillSubtotal">${money(billTotals(bill).subtotal)}</strong></div>
+            <div><span>Bill Total</span><strong id="editBillTotal">${money(billTotals(bill).total)}</strong></div>
+            <div><span>Total Quantity</span><strong id="editBillItemCount">${items.reduce((sum, item) => sum + Number(item.qty || 0), 0)}</strong></div>
           </div></div>
           <div id="billEditMessage" class="alert hidden wide"></div>
           <div class="field wide"><button class="btn orange" type="submit">Save Bill Changes</button></div>
         </form>
       </div></div>`;
       document.getElementById("billEditForm").onsubmit = event => saveBillEdit(event, id);
+    }
+    function billEditItemsFromForm(bill) {
+      return (Array.isArray(bill.items) ? bill.items : []).map((item, index) => ({
+        ...item,
+        name: document.getElementById(`editBillItemName${index}`)?.value.trim() || "",
+        qty: Number(document.getElementById(`editBillItemQty${index}`)?.value || 0),
+        price: Number(document.getElementById(`editBillItemPrice${index}`)?.value || 0),
+        discount: Number(document.getElementById(`editBillItemDiscount${index}`)?.value || 0)
+      }));
+    }
+    function updateBillEditTotals(id) {
+      const bill = state.bills.find(item => item.id === id);
+      if (!bill) return;
+      const items = billEditItemsFromForm(bill);
+      items.forEach((item, index) => {
+        const amount = Math.max(0, item.price) * Math.max(0, item.qty) * (1 - Math.max(0, Math.min(100, item.discount)) / 100);
+        const amountElement = document.getElementById(`editBillItemAmount${index}`);
+        if (amountElement) amountElement.textContent = money(amount);
+      });
+      const draft = {
+        ...bill,
+        items: items.map(item => ({
+          ...item,
+          qty: Math.max(0, Number(item.qty || 0)),
+          price: Math.max(0, Number(item.price || 0)),
+          discount: Math.max(0, Math.min(100, Number(item.discount || 0)))
+        })),
+        billDiscountPercent: Number(document.getElementById("editBillDiscount")?.value || 0)
+      };
+      const totals = billTotals(draft);
+      const subtotalElement = document.getElementById("editBillSubtotal");
+      const totalElement = document.getElementById("editBillTotal");
+      const countElement = document.getElementById("editBillItemCount");
+      if (subtotalElement) subtotalElement.textContent = money(totals.subtotal);
+      if (totalElement) totalElement.textContent = money(totals.total);
+      if (countElement) countElement.textContent = items.reduce((sum, item) => sum + Math.max(0, Number(item.qty || 0)), 0);
     }
     function editBillPaymentMethodChanged() {
       const method = document.getElementById("editBillPaymentMethod");
@@ -3252,6 +3313,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const customerPhone = document.getElementById("editBillPhone").value.trim();
       const received = Number(document.getElementById("editBillReceived").value || 0);
       const discount = Number(document.getElementById("editBillDiscount").value || 0);
+      const originalItems = Array.isArray(bill.items) ? bill.items.map(item => ({ ...item })) : [];
+      const editedItems = billEditItemsFromForm(bill);
       if (!customerName || !/^\d{11}$/.test(customerPhone)) {
         message.textContent = "Customer name and 11 digit phone number are required.";
         message.classList.remove("hidden");
@@ -3262,6 +3325,33 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         message.classList.remove("hidden");
         return;
       }
+      if (!editedItems.length || editedItems.some(item =>
+        !item.name ||
+        !Number.isInteger(item.qty) || item.qty < 1 ||
+        !Number.isFinite(item.price) || item.price < 0 ||
+        !Number.isFinite(item.discount) || item.discount < 0 || item.discount > 100
+      )) {
+        message.textContent = "Every item needs a name, whole quantity of at least 1, valid price, and discount from 0 to 100%.";
+        message.classList.remove("hidden");
+        return;
+      }
+      const oldQuantityByProduct = new Map();
+      const newQuantityByProduct = new Map();
+      originalItems.forEach(item => {
+        if (item.id) oldQuantityByProduct.set(item.id, (oldQuantityByProduct.get(item.id) || 0) + Number(item.qty || 0));
+      });
+      editedItems.forEach(item => {
+        if (item.id) newQuantityByProduct.set(item.id, (newQuantityByProduct.get(item.id) || 0) + Number(item.qty || 0));
+      });
+      for (const [productId, newQuantity] of newQuantityByProduct) {
+        const product = state.products.find(item => item.id === productId);
+        const oldQuantity = oldQuantityByProduct.get(productId) || 0;
+        if (product && newQuantity > Number(product.stock || 0) + oldQuantity) {
+          message.textContent = `${product.name} only has ${Number(product.stock || 0) + oldQuantity} available for this bill.`;
+          message.classList.remove("hidden");
+          return;
+        }
+      }
       bill.customerName = customerName;
       bill.customerPhone = customerPhone;
       bill.saleMode = document.getElementById("editBillSaleMode").value;
@@ -3269,6 +3359,21 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       bill.paymentStatus = document.getElementById("editBillPaymentStatus").value;
       bill.bankRef = bill.paymentMethod === "Bank" ? document.getElementById("editBillBankRef").value.trim() : "";
       bill.billDiscountPercent = discount;
+      bill.items = editedItems;
+      new Set([...oldQuantityByProduct.keys(), ...newQuantityByProduct.keys()]).forEach(productId => {
+        const product = state.products.find(item => item.id === productId);
+        if (!product) return;
+        const quantityDifference = (newQuantityByProduct.get(productId) || 0) - (oldQuantityByProduct.get(productId) || 0);
+        if (!quantityDifference) return;
+        product.stock = Number(product.stock || 0) - quantityDifference;
+        state.stockHistory.push({
+          date: new Date().toLocaleString(),
+          product: product.name,
+          change: -quantityDifference,
+          remarks: `Edited bill ${bill.id}`,
+          user: currentUser.username
+        });
+      });
       bill.received = bill.paymentStatus === "Paid" ? Math.max(received, billTotals(bill).total) : received;
       bill.editedAt = new Date().toISOString();
       bill.editedBy = currentUser.username;
