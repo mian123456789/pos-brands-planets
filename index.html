@@ -3319,6 +3319,17 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         ["Present", "Late"].includes(a.status || "Present")
       );
     }
+    function attendanceRecordMatchesStaff(record, staff) {
+      if (!record || !staff) return false;
+      const recordName = String(record.name || record.username || "").trim().toLowerCase();
+      const staffName = String(staff.name || "").trim().toLowerCase();
+      const recordUsername = String(record.staffUsername || "").trim().toLowerCase();
+      const staffUsername = String(staff.username || "").trim().toLowerCase();
+      return recordName === staffName || Boolean(recordUsername && staffUsername && recordUsername === staffUsername);
+    }
+    function openAttendanceRecordsForStaffToday(staff) {
+      return openAttendanceRecordsToday().filter(record => attendanceRecordMatchesStaff(record, staff));
+    }
     function isTodayClosed() {
       return state.dayClosings.some(d => d.date === todayKey() && d.status === "Closed");
     }
@@ -3352,6 +3363,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         role: option?.dataset.role || "Cashier"
       };
     }
+    function selectAttendanceStaff(name) {
+      sessionStorage.setItem("bp-pos-selected-staff", name);
+      renderAttendance();
+    }
     function renderAttendance() {
       const savedScrollY = window.scrollY;
       const selectedPeriod = document.getElementById("attendancePeriod")?.value || sessionStorage.getItem("bp-pos-attendance-period") || "month";
@@ -3359,25 +3374,28 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const report = buildAttendanceReport(selectedPeriod);
       const attendanceRows = report.rows.filter(record => !record.virtual);
       const needsMark = attendanceRequired();
-      const needsOut = markOutRequired();
+      const hasOpenAttendance = openAttendanceRecordsToday().length > 0;
       const cashierName = currentUser?.username || "User";
       const currentRecord = todayAttendance(cashierName);
       const canManage = currentUser?.role === "Owner";
       const staffOptions = attendanceStaffOptions();
       const hasStaffOptions = staffOptions.length > 0;
-      const selectedStaff = sessionStorage.getItem("bp-pos-selected-staff") || currentRecord?.name || staffOptions[0]?.name || "";
+      const requestedStaffName = sessionStorage.getItem("bp-pos-selected-staff") || currentRecord?.name || "";
+      const selectedStaff = staffOptions.find(staff => staff.name === requestedStaffName) || staffOptions[0] || null;
+      const selectedStaffName = selectedStaff?.name || "";
+      const selectedNeedsOut = openAttendanceRecordsForStaffToday(selectedStaff).length > 0;
       document.getElementById("attendance").innerHTML = `<div class="card">
-        <div class="section-title"><h3>Attendance</h3><span class="badge ${needsOut ? "warn" : "good"}">${needsOut ? "Open Attendance" : "Ready"}</span></div>
+        <div class="section-title"><h3>Attendance</h3><span class="badge ${hasOpenAttendance ? "warn" : "good"}">${hasOpenAttendance ? "Open Attendance" : "Ready"}</span></div>
         <div class="attendance-user-card">
           <small>${needsMark ? "Mark attendance first" : "Staff attendance"}</small>
           <span>${currentRecord ? `Last in: ${currentRecord.name || currentRecord.username} at ${currentRecord.time || "Absent"}${currentRecord.outTime ? ` - out ${currentRecord.outTime}` : ""}` : "Select staff person and mark attendance"}</span>
           <div class="form-grid" style="margin-top:10px">
-            <div class="field wide"><label>Staff Person</label><select id="attendancePersonSelect" onchange="sessionStorage.setItem('bp-pos-selected-staff', this.value)" onkeydown="attendanceNameKey(event)">
-              ${hasStaffOptions ? staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}" ${staff.name === selectedStaff ? "selected" : ""}>${staff.name}</option>`).join("") : `<option value="">No staff added</option>`}
+            <div class="field wide"><label>Staff Person</label><select id="attendancePersonSelect" onchange="selectAttendanceStaff(this.value)" onkeydown="attendanceNameKey(event)">
+              ${hasStaffOptions ? staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}" ${staff.name === selectedStaffName ? "selected" : ""}>${staff.name}</option>`).join("") : `<option value="">No staff added</option>`}
             </select></div>
             <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()" ${hasStaffOptions ? "" : "disabled"}>Mark Present</button></div>
             <div class="field"><label>&nbsp;</label><button class="btn danger" onclick="markAbsent()" ${hasStaffOptions ? "" : "disabled"}>Mark Absent</button></div>
-            <div class="field"><label>&nbsp;</label><button class="btn light" onclick="markOutAttendance()" ${needsOut ? "" : "disabled"}>Mark Out All Present</button></div>
+            <div class="field"><label>&nbsp;</label><button class="btn light" onclick="markOutSelectedAttendance()" ${selectedNeedsOut ? "" : "disabled"}>Mark Out Selected</button></div>
           </div>
         </div>
         ${needsMark ? `<div class="alert">Please select the staff person and click Mark Present first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Attendance stays ready so another staff person can be marked whenever this tab is opened.</p>`}
@@ -3584,8 +3602,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       renderAttendance();
       toast("Attendance deleted.");
     }
-    function markOutAttendance(skipToast = false) {
-      const records = openAttendanceRecordsToday();
+    function completeAttendanceRecords(records, successMessage, skipToast = false) {
       if (!records.length) {
         if (!skipToast) toast("No present staff are waiting to mark out.");
         return false;
@@ -3600,8 +3617,30 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       });
       save(true);
       if (activeSection === "attendance") renderAttendance();
-      if (!skipToast) toast(`${records.length} present ${records.length === 1 ? "person" : "people"} marked out.`);
+      if (!skipToast) toast(successMessage);
       return true;
+    }
+    function markOutSelectedAttendance() {
+      const staff = selectedAttendanceStaff();
+      if (!staff) {
+        toast("Select a staff person first.");
+        return false;
+      }
+      const records = openAttendanceRecordsForStaffToday(staff);
+      if (!records.length) {
+        toast(`${staff.name} has no open attendance to mark out.`);
+        renderAttendance();
+        return false;
+      }
+      return completeAttendanceRecords(records, `${staff.name} marked out.`);
+    }
+    function markOutAttendance(skipToast = false) {
+      const records = openAttendanceRecordsToday();
+      return completeAttendanceRecords(
+        records,
+        `${records.length} present ${records.length === 1 ? "person" : "people"} marked out.`,
+        skipToast
+      );
     }
     function showCashierLogoutPrompt() {
       const needsOut = markOutRequired();
