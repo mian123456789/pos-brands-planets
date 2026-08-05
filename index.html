@@ -3312,8 +3312,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function todayAttendance(username) {
       return state.attendance.slice().reverse().find(a => a.username === username && a.date === todayKey());
     }
-    function openAttendanceToday(username) {
-      return state.attendance.slice().reverse().find(a => a.username === username && a.date === todayKey() && !a.outTime);
+    function openAttendanceRecordsToday() {
+      return state.attendance.filter(a =>
+        a.date === todayKey() &&
+        !a.outTime &&
+        ["Present", "Late"].includes(a.status || "Present")
+      );
     }
     function isTodayClosed() {
       return state.dayClosings.some(d => d.date === todayKey() && d.status === "Closed");
@@ -3322,8 +3326,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       return currentUser?.role === "Cashier" && !isTodayClosed() && !hasWorkAttendanceToday(currentUser.username);
     }
     function markOutRequired() {
-      const record = currentUser?.role === "Cashier" ? openAttendanceToday(currentUser.username) : null;
-      return Boolean(record && !record.outTime);
+      return currentUser?.role === "Cashier" && openAttendanceRecordsToday().length > 0;
     }
     function attendanceStaffOptions() {
       const staff = [];
@@ -3374,7 +3377,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             </select></div>
             <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()" ${hasStaffOptions ? "" : "disabled"}>Mark Present</button></div>
             <div class="field"><label>&nbsp;</label><button class="btn danger" onclick="markAbsent()" ${hasStaffOptions ? "" : "disabled"}>Mark Absent</button></div>
-            <div class="field"><label>&nbsp;</label><button class="btn light" onclick="markOutAttendance()" ${needsOut ? "" : "disabled"}>Mark Out</button></div>
+            <div class="field"><label>&nbsp;</label><button class="btn light" onclick="markOutAttendance()" ${needsOut ? "" : "disabled"}>Mark Out All Present</button></div>
           </div>
         </div>
         ${needsMark ? `<div class="alert">Please select the staff person and click Mark Present first. Billing and other POS sections will unlock after attendance is marked.</div>` : `<p class="muted">Attendance stays ready so another staff person can be marked whenever this tab is opened.</p>`}
@@ -3582,21 +3585,22 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       toast("Attendance deleted.");
     }
     function markOutAttendance(skipToast = false) {
-      const record = openAttendanceToday(currentUser?.username);
-      if (!record) {
-        if (!skipToast) toast("Mark attendance first.");
+      const records = openAttendanceRecordsToday();
+      if (!records.length) {
+        if (!skipToast) toast("No present staff are waiting to mark out.");
         return false;
       }
-      if (record.outTime) {
-        if (!skipToast) toast("Out attendance already marked.");
-        return false;
-      }
-      record.outTime = new Date().toLocaleTimeString();
-      record.outAt = new Date().toISOString();
-      record.status = "Completed";
-      save();
+      const now = new Date();
+      const outTime = now.toLocaleTimeString();
+      const outAt = now.toISOString();
+      records.forEach(record => {
+        record.outTime = outTime;
+        record.outAt = outAt;
+        record.status = "Completed";
+      });
+      save(true);
       if (activeSection === "attendance") renderAttendance();
-      if (!skipToast) toast("Out attendance marked.");
+      if (!skipToast) toast(`${records.length} present ${records.length === 1 ? "person" : "people"} marked out.`);
       return true;
     }
     function showCashierLogoutPrompt() {
@@ -3604,7 +3608,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const attendedToday = hasAttendanceToday(currentUser?.username);
       const title = needsOut ? "Complete Attendance" : attendedToday ? "Confirm Logout" : "Attendance Not Marked";
       const message = needsOut
-        ? "Mark out attendance before logging out, or continue without marking out."
+        ? "Mark out all staff who are currently present before logging out, or continue without marking out."
         : attendedToday
           ? "Your attendance is already complete. Do you want to log out?"
           : "No attendance was marked today. You can return to attendance or log out without marking it.";
@@ -3612,7 +3616,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div class="section-title"><h3>${title}</h3><button class="btn light icon" onclick="closeModal()">x</button></div>
         <p class="muted">${message}</p>
         <div class="modal-actions">
-          ${needsOut ? `<button class="btn orange" onclick="markOutAttendance(true); performLogout();">Mark Out & Logout</button>` : ""}
+          ${needsOut ? `<button class="btn orange" onclick="markOutAttendance(true); performLogout();">Mark Out All & Logout</button>` : ""}
           <button class="btn ${needsOut || !attendedToday ? "ghost" : "orange"}" onclick="performLogout()">${needsOut ? "Logout Without Mark Out" : attendedToday ? "Logout" : "Logout Without Attendance"}</button>
           <button class="btn light" onclick="closeModal()">Cancel</button>
         </div>
