@@ -797,6 +797,14 @@
     }
     .toolbar > * { flex: 1 1 160px; }
     .toolbar .btn { flex: 0 0 auto; }
+    .inventory-bulk-discount {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 330px;
+    }
+    .inventory-bulk-discount input { min-width: 130px; }
+    .inventory-bulk-discount .btn { white-space: nowrap; }
     .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
     table { width: 100%; border-collapse: collapse; min-width: 760px; background: #fff; }
     th, td { padding: 12px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; vertical-align: middle; }
@@ -1804,6 +1812,8 @@
       .section-title { align-items: flex-start; flex-direction: column; }
       .attendance-report-head { grid-template-columns: 1fr; }
       .toolbar .btn { width: 100%; }
+      .inventory-bulk-discount { flex-direction: column; align-items: stretch; }
+      .inventory-bulk-discount input { min-width: 0; }
       .scan-input { min-height: 58px; font-size: 16px; }
       .pos-panel-head, .pos-panel-body { padding: 14px; }
       .product-tile { min-height: 132px; }
@@ -2767,6 +2777,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <div class="toolbar">
             <input id="productSearch" placeholder="Search products or barcode" oninput="renderProductTable()">
             <select id="categoryFilter" onchange="renderProductTable()"><option value="">All Categories</option>${inventoryCategories.map(c => `<option>${c}</option>`).join("")}</select>
+            <div class="inventory-bulk-discount">
+              <input id="inventoryBulkDiscount" type="number" min="0" max="100" step="0.01" inputmode="decimal" placeholder="All products discount %" aria-label="Discount percentage for all inventory products">
+              <button class="btn orange" onclick="applyDiscountToAllInventory()">Apply to All</button>
+            </div>
             <button class="btn light" onclick="exportCSV('inventory')">Export Excel</button>
           </div>
           <div id="productTable"></div>
@@ -2778,6 +2792,21 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           </tbody></table></div>
         </div>`;
       renderProductTable();
+    }
+    function applyDiscountToAllInventory() {
+      if (!can("inventory")) return showSectionMessage("inventory", "You do not have permission to update inventory.");
+      const input = document.getElementById("inventoryBulkDiscount");
+      const discount = Number(input?.value);
+      if (!input || input.value === "" || !Number.isFinite(discount) || discount < 0 || discount > 100) {
+        return showSectionMessage("inventory", "Enter a discount from 0 to 100%.");
+      }
+      if (!state.products.length) return showSectionMessage("inventory", "There are no inventory products to update.");
+      if (!confirm(`Apply ${discount}% discount to all ${state.products.length} inventory products?`)) return;
+      state.products.forEach(product => { product.discount = discount; });
+      cart.forEach(item => { item.discount = discount; });
+      save(true);
+      renderInventory();
+      toast(`${discount}% discount applied to all inventory products.`);
     }
     function renderProductTable() {
       const q = (document.getElementById("productSearch")?.value || "").toLowerCase();
@@ -2852,6 +2881,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         if (!product.name || !product.barcode) return showProductError("Product name and barcode are required.");
         if (!Number.isFinite(product.price) || product.price < 0) return showProductError("Valid product price is required.");
         if (!Number.isFinite(product.stock) || product.stock < 0) return showProductError("Stock quantity cannot be negative.");
+        if (!Number.isFinite(product.discount) || product.discount < 0 || product.discount > 100) return showProductError("Discount must be from 0 to 100%.");
         if (state.products.some(p => p.id !== product.id && p.barcode === product.barcode)) return showProductError("This barcode already exists.");
         if (old) {
           state.stockHistory.push({ date: new Date().toLocaleString(), product: product.name, change: product.stock - old.stock, remarks: "Product edit", user: currentUser.username });
@@ -2909,7 +2939,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               <div class="field"><label>Payment Method</label><select id="paymentMethod" onchange="paymentMethodChanged()"><option>Cash</option><option>Bank</option></select></div>
               <div class="field"><label>Payment Status</label><select id="paymentStatus" onchange="paymentStatusChanged()"><option>Paid</option><option>Pending</option></select></div>
               <div class="field"><label>Bank Reference</label><input id="bankRef" placeholder="Write bank/reference details"></div>
-              ${field("Received Amount", "receivedAmount", "", "number")}
+              ${field("Received Amount", "receivedAmount", "", "number", 'min="0" step="0.01" inputmode="decimal" oninput="receivedAmountChanged()"')}
               <div class="field"><label>Discount %</label><div class="percent-input"><input id="totalDiscount" type="number" value="${billDiscount}" min="0" max="100" step="0.01" inputmode="decimal" oninput="clampBillDiscount(); updateBillSummary()"><span>%</span></div></div>
             </div>
             <div id="billSummary" class="summary"></div>
@@ -2986,18 +3016,37 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!bankRef || !receivedAmount || !bankRef.value.trim()) return;
       if (paymentMethod) paymentMethod.value = "Bank";
       receivedAmount.value = currentCartTotals().total;
+      receivedAmount.dataset.manual = "false";
+    }
+    function bankReferenceChanged() {
+      applyBankReferenceAmount();
+      updateBillSummary();
+    }
+    function receivedAmountChanged() {
+      const receivedAmount = document.getElementById("receivedAmount");
+      if (receivedAmount) receivedAmount.dataset.manual = "true";
+      updateBillSummary();
     }
     function paymentMethodChanged() {
       const paymentMethod = document.getElementById("paymentMethod");
       const bankRef = document.getElementById("bankRef");
-      if (paymentMethod?.value === "Cash" && bankRef) bankRef.value = "";
+      const receivedAmount = document.getElementById("receivedAmount");
+      if (paymentMethod?.value === "Cash") {
+        if (bankRef) bankRef.value = "";
+        if (receivedAmount?.dataset.manual !== "true") receivedAmount.value = "";
+        if (receivedAmount) receivedAmount.dataset.manual = "true";
+      } else if (bankRef?.value.trim()) {
+        applyBankReferenceAmount();
+      }
       updateBillSummary();
     }
     function paymentStatusChanged() {
       const paymentStatus = document.getElementById("paymentStatus");
+      const paymentMethod = document.getElementById("paymentMethod");
       const receivedAmount = document.getElementById("receivedAmount");
-      if (paymentStatus?.value === "Paid" && receivedAmount) {
+      if (paymentStatus?.value === "Paid" && paymentMethod?.value === "Bank" && receivedAmount) {
         receivedAmount.value = currentCartTotals().total;
+        receivedAmount.dataset.manual = "false";
       }
       updateBillSummary();
     }
@@ -3009,9 +3058,13 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       billDiscount = value;
     }
     function updateBillSummary() {
-      applyBankReferenceAmount();
       const { subtotal, discount, total, billDiscountPercent } = currentCartTotals();
-      const received = Number(document.getElementById("receivedAmount")?.value || 0);
+      const receivedInput = document.getElementById("receivedAmount");
+      const bankReference = document.getElementById("bankRef")?.value.trim();
+      if (document.getElementById("paymentMethod")?.value === "Bank" && bankReference && receivedInput?.dataset.manual !== "true") {
+        receivedInput.value = total;
+      }
+      const received = Number(receivedInput?.value || 0);
       document.getElementById("billSummary").innerHTML = `
         <div><span>Subtotal</span><strong>${money(subtotal)}</strong></div>
         <div><span>Discount (${billDiscountPercent}% bill)</span><strong>${money(discount)}</strong></div>
@@ -3021,7 +3074,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div><span>Status</span><strong><span class="badge ${document.getElementById("paymentStatus")?.value === "Paid" ? "good" : "warn"}">${document.getElementById("paymentStatus")?.value || "Paid"}</span></strong></div>`;
     }
     function bindBillingAmountInputs() {
-      [["receivedAmount", updateBillSummary], ["totalDiscount", updateBillSummary], ["bankRef", updateBillSummary], ["paymentMethod", paymentMethodChanged], ["paymentStatus", paymentStatusChanged]].forEach(([id, handler]) => {
+      [["totalDiscount", updateBillSummary], ["bankRef", bankReferenceChanged], ["paymentMethod", paymentMethodChanged], ["paymentStatus", paymentStatusChanged]].forEach(([id, handler]) => {
         const el = document.getElementById(id);
         if (!el || el.dataset.amountBound) return;
         el.dataset.amountBound = "true";
