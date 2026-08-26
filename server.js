@@ -100,7 +100,9 @@ function mergeRecordCollection(collection, storedRows = [], incomingRows = []) {
 function mergeDeletedRecords(storedDeleted = {}, incomingDeleted = {}) {
   const merged = {};
   deletedBuckets.forEach(bucket => {
-    merged[bucket] = Array.from(new Set([...(storedDeleted[bucket] || []), ...(incomingDeleted[bucket] || [])].map(String)));
+    merged[bucket] = bucket === "staffNames"
+      ? []
+      : Array.from(new Set([...(storedDeleted[bucket] || []), ...(incomingDeleted[bucket] || [])].map(String)));
   });
   return merged;
 }
@@ -199,12 +201,10 @@ const server = http.createServer(async (req, res) => {
         if (!fs.existsSync(STORAGE_FILE)) {
           return sendJson(res, 200, { state: null, updatedAt: null });
         }
-        const storedState = fs.readFileSync(STORAGE_FILE);
-        res.writeHead(200, noCacheHeaders({
-          "Content-Type": "application/json; charset=utf-8",
-          "Access-Control-Allow-Origin": "*"
-        }));
-        return res.end(storedState);
+        const storedPayload = JSON.parse(fs.readFileSync(STORAGE_FILE, "utf8"));
+        const storedState = applyDeletedRecords(storedPayload.state || storedPayload);
+        if (storedPayload.state) storedPayload.state = storedState;
+        return sendJson(res, 200, storedPayload.state ? storedPayload : storedState);
       } catch (error) {
         console.error("State read failed:", error);
         return sendJson(res, 500, {

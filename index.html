@@ -2058,7 +2058,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function normalizeDeletedRecords(target = state) {
       target.deleted = target.deleted || {};
       deletedBuckets.forEach(bucket => {
-        target.deleted[bucket] = Array.from(new Set((target.deleted[bucket] || []).map(value => String(value))));
+        target.deleted[bucket] = bucket === "staffNames"
+          ? []
+          : Array.from(new Set((target.deleted[bucket] || []).map(value => String(value))));
       });
       return target.deleted;
     }
