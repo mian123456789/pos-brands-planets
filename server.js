@@ -6,14 +6,26 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const IS_HOSTED_DEPLOYMENT = process.env.PORT || path.basename(ROOT).toLowerCase() === "nodejs";
+const LEGACY_STORAGE_DIR = path.resolve(ROOT, "..", "pos-data");
+const HOST_HOME_DIR = process.env.HOME && path.isAbsolute(process.env.HOME)
+  ? process.env.HOME
+  : null;
 const DEFAULT_STORAGE_DIR = IS_HOSTED_DEPLOYMENT
-  ? path.resolve(ROOT, "..", "pos-data")
+  ? path.join(HOST_HOME_DIR || path.resolve(ROOT, "..", ".."), ".brands-planets-pos-data")
   : path.join(ROOT, "data");
 const STORAGE_DIR = process.env.POS_DATA_DIR
   ? path.resolve(ROOT, process.env.POS_DATA_DIR)
   : DEFAULT_STORAGE_DIR;
 const STORAGE_FILE = path.join(STORAGE_DIR, "pos-state.json");
 const STORAGE_TEMP_FILE = path.join(STORAGE_DIR, "pos-state.tmp.json");
+
+function ensurePersistentStorage() {
+  fs.mkdirSync(STORAGE_DIR, { recursive: true });
+  const legacyFile = path.join(LEGACY_STORAGE_DIR, "pos-state.json");
+  if (!fs.existsSync(STORAGE_FILE) && LEGACY_STORAGE_DIR !== STORAGE_DIR && fs.existsSync(legacyFile)) {
+    fs.copyFileSync(legacyFile, STORAGE_FILE, fs.constants.COPYFILE_EXCL);
+  }
+}
 
 function noCacheHeaders(extra = {}) {
   return {
@@ -178,7 +190,7 @@ const server = http.createServer(async (req, res) => {
     let storageReady = true;
     let storageError = "";
     try {
-      fs.mkdirSync(STORAGE_DIR, { recursive: true });
+      ensurePersistentStorage();
       fs.accessSync(STORAGE_DIR, fs.constants.R_OK | fs.constants.W_OK);
     } catch (error) {
       storageReady = false;
@@ -197,7 +209,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url.split("?")[0] === "/api/state") {
     if (req.method === "GET") {
       try {
-        fs.mkdirSync(STORAGE_DIR, { recursive: true });
+        ensurePersistentStorage();
         if (!fs.existsSync(STORAGE_FILE)) {
           return sendJson(res, 200, { state: null, updatedAt: null });
         }
@@ -216,7 +228,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST") {
       try {
-        fs.mkdirSync(STORAGE_DIR, { recursive: true });
+        ensurePersistentStorage();
         const payload = JSON.parse(await readRequestBody(req));
         if (!payload || typeof payload !== "object" || !payload.state || typeof payload.state !== "object") {
           return sendJson(res, 400, { error: "Invalid state payload" });
