@@ -2179,8 +2179,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       localStorage.setItem("bp-pos-local-updated-at", state.updatedAt);
       rememberPersistedState();
       window.dispatchEvent(new Event("storage-lite"));
-      if (immediateCloud) pushCloudState();
-      else queueCloudSave();
+      if (immediateCloud) return pushCloudState();
+      queueCloudSave();
+      return Promise.resolve(true);
     }
     function mergeState(remoteState, remoteUpdatedAt = "", forceRemote = false) {
       if (!remoteState || !Array.isArray(remoteState.users) || !Array.isArray(remoteState.products)) return false;
@@ -2537,10 +2538,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       window.addEventListener("storage", () => { state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state; if (activeSection !== "billing") render(activeSection); });
       window.addEventListener("storage-lite", () => { if (activeSection !== "billing") render(activeSection); });
       window.addEventListener("beforeunload", e => {
-        if (markOutRequired()) {
-          e.preventDefault();
-          e.returnValue = "Mark out attendance before closing the POS.";
-        }
+        if (!cashierExitNeedsAttention()) return;
+        showCashierLogoutPrompt();
+        e.preventDefault();
+        e.returnValue = "";
       });
     }
     async function syncSystem() {
@@ -3509,6 +3510,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function markOutRequired() {
       return currentUser?.role === "Cashier" && openAttendanceRecordsToday().length > 0;
     }
+    function cashierExitNeedsAttention() {
+      if (currentUser?.role !== "Cashier") return false;
+      return markOutRequired() || !hasAttendanceToday(currentUser.username);
+    }
     function attendanceStaffOptions() {
       const staff = [];
       const seen = new Set();
@@ -4218,14 +4223,23 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <td><div class="user-actions"><button class="btn light" onclick="saveUser('${user.id}')">Save</button><button class="btn danger" onclick="removeUser('${user.id}')">Delete</button></div></td>
       </tr>`;
     }
-    function addUser() {
+    async function addUser() {
       const username = document.getElementById("newUser").value.trim();
       const password = document.getElementById("newPass").value;
       const selectedPermissions = [...document.querySelectorAll(".newPermission:checked")].map(input => input.value);
       if (!username || !password) return toast("Enter username and password.");
       if (!selectedPermissions.length) return toast("Select at least one cashier permission.");
-      state.users.push({ id: uid("u"), username, password, role: "Cashier", active: true, permissions: selectedPermissions });
-      save(); renderUsers();
+      if (state.users.some(user => user.username.toLowerCase() === username.toLowerCase())) return toast("This username already exists.");
+      const now = new Date().toISOString();
+      const cashier = { id: uid("u"), username, password, role: "Cashier", active: true, permissions: selectedPermissions, createdAt: now, updatedAt: now };
+      normalizeDeletedRecords(state);
+      state.deleted.users = state.deleted.users.filter(id => id !== cashier.id);
+      state.users.push(cashier);
+      renderUsers();
+      toast("Saving cashier...");
+      const cloudSaved = await save(true);
+      renderUsers();
+      toast(cloudSaved ? "Cashier added and synced." : "Cashier added locally. Use Sync when the backend is available.");
     }
     function saveUser(id) {
       const user = state.users.find(u => u.id === id && u.role === "Cashier");
