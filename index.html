@@ -2096,14 +2096,11 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function applyDeletedRecords(target = state) {
       const deleted = normalizeDeletedRecords(target);
-      const deletedStaffNames = new Set((deleted.staffNames || []).map(name => String(name).trim().toLowerCase()));
       if (Array.isArray(target.products)) target.products = target.products.filter(item => !deleted.products.includes(recordKey(item)));
       if (Array.isArray(target.bills)) target.bills = target.bills.filter(item => !deleted.bills.includes(recordKey(item)));
       if (Array.isArray(target.attendance)) target.attendance = target.attendance.filter(item => !deleted.attendance.includes(recordKey(item)));
       if (Array.isArray(target.expenses)) target.expenses = target.expenses.filter(item => !deleted.expenses.includes(recordKey(item)));
-      if (Array.isArray(target.staff)) {
-        target.staff = target.staff.filter(item => !deleted.staff.includes(recordKey(item)) && !deletedStaffNames.has(String(item.name || "").trim().toLowerCase()));
-      }
+      if (Array.isArray(target.staff)) target.staff = target.staff.filter(item => !deleted.staff.includes(recordKey(item)));
       if (Array.isArray(target.dayClosings)) target.dayClosings = target.dayClosings.filter(item => !deleted.dayClosings.includes(recordKey(item)));
       if (Array.isArray(target.users)) target.users = target.users.filter(item => !deleted.users.includes(recordKey(item)));
     }
@@ -2352,17 +2349,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       state.staff = state.staff.filter(staff => staff.id !== "s-cashier" && !["Default staff", "Cashier login"].includes(staff.remarks));
       if (state.staff.length !== staffCountBeforeCleanup) changed = true;
       applyDeletedRecords(state);
-      const deletedStaffNames = new Set((state.deleted.staffNames || []).map(name => String(name).trim().toLowerCase()));
-      const seen = new Set(state.staff.map(staff => String(staff.name || "").trim().toLowerCase()).filter(Boolean));
-      const addStaff = (name, role = "Cashier", phone = "", remarks = "") => {
-        const cleanName = String(name || "").trim();
-        const cleanKey = cleanName.toLowerCase();
-        if (!cleanName || cleanKey === "cashier" || deletedStaffNames.has(cleanKey) || seen.has(cleanKey)) return;
-        state.staff.push({ id: uid("s"), name: cleanName, role, phone, remarks });
-        seen.add(cleanKey);
-        changed = true;
-      };
-      state.attendance.forEach(record => addStaff(record.name || record.username, record.role || "Cashier", "", "From attendance"));
       state.staff.forEach(staff => {
         if (!staff.id) {
           staff.id = uid("s");
@@ -4035,7 +4021,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         </div>
       </div>`;
     }
-    function addStaffMember() {
+    async function addStaffMember() {
       if (!can("staff")) return toast("You do not have permission for staff.");
       const name = document.getElementById("staffName").value.trim();
       const role = document.getElementById("staffRole").value.trim() || "Staff";
@@ -4045,10 +4031,15 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if ((state.staff || []).some(staff => staff.name.toLowerCase() === name.toLowerCase())) return toast("Staff already exists.");
       normalizeDeletedRecords(state);
       state.deleted.staffNames = state.deleted.staffNames.filter(staffName => staffName !== name.toLowerCase());
-      state.staff.push({ id: uid("s"), name, role, phone, remarks });
-      save();
+      const now = new Date().toISOString();
+      const staff = { id: uid("s"), name, role, phone, remarks, createdAt: now, updatedAt: now };
+      state.deleted.staff = state.deleted.staff.filter(id => id !== staff.id);
+      state.staff.push(staff);
       renderStaff();
-      toast("Staff added.");
+      toast("Saving staff...");
+      const cloudSaved = await save(true);
+      renderStaff();
+      toast(cloudSaved ? "Staff added and synced." : "Staff added locally. Use Sync when the backend is available.");
     }
     function editStaffMember(id) {
       if (!can("staff")) return toast("You do not have permission for staff.");
@@ -4069,7 +4060,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       staff.role = role.trim() || "Staff";
       staff.phone = phone.trim();
       staff.remarks = remarks.trim();
-      save();
+      save(true);
       renderStaff();
       toast("Staff updated.");
     }
@@ -4079,7 +4070,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (!staff) return toast("Staff not found.");
       if (state.attendance.some(record => (record.name || record.username) === staff.name) && !confirm("This staff has attendance records. Delete staff from list anyway? Reports will keep old attendance records.")) return;
       markDeleted("staff", id);
-      markDeleted("staffNames", String(staff.name || "").trim().toLowerCase());
       state.staff = state.staff.filter(item => item.id !== id);
       save(true);
       renderStaff();

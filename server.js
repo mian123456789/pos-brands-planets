@@ -107,7 +107,6 @@ function mergeDeletedRecords(storedDeleted = {}, incomingDeleted = {}) {
 
 function applyDeletedRecords(target) {
   const deleted = mergeDeletedRecords(target.deleted, {});
-  const deletedStaffNames = new Set(deleted.staffNames.map(name => String(name).trim().toLowerCase()));
   const bucketByCollection = {
     users: "users",
     products: "products",
@@ -120,7 +119,6 @@ function applyDeletedRecords(target) {
   Object.entries(bucketByCollection).forEach(([collection, bucket]) => {
     target[collection] = (target[collection] || []).filter(item => !deleted[bucket].includes(syncRecordKey(collection, item)));
   });
-  target.staff = (target.staff || []).filter(item => !deletedStaffNames.has(String(item.name || "").trim().toLowerCase()));
   target.deleted = deleted;
   return target;
 }
