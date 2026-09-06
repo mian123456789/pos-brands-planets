@@ -199,6 +199,18 @@
       font-weight: 700;
       font-size: 13px;
     }
+    input.input-error {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 4px rgba(217, 45, 32, 0.12);
+    }
+    .field-validation {
+      display: block;
+      margin-top: 7px;
+      color: var(--danger);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.4;
+    }
     .attendance-user-card {
       display: grid;
       gap: 5px;
@@ -3123,7 +3135,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               <div class="field"><label>Payment Status</label><select id="paymentStatus" onchange="paymentStatusChanged()"><option>Paid</option><option>Pending</option></select></div>
               <div class="field"><label>Bank Reference</label><input id="bankRef" placeholder="Write bank/reference details"></div>
               <div class="field"><label>Received Amount</label>
-                <input id="receivedAmount" type="number" min="0" step="0.01" inputmode="decimal" oninput="receivedAmountChanged()">
+                <input id="receivedAmount" type="number" min="0" step="0.01" inputmode="decimal" aria-describedby="receivedAmountError" oninput="receivedAmountChanged()">
+                <small id="receivedAmountError" class="field-validation hidden" role="alert" aria-live="assertive">Enter the received amount before saving and printing the bill.</small>
                 <div class="amount-status" id="remainingAmountStatus"><span id="remainingAmountLabel">Remaining Amount</span><strong id="remainingAmountInline">${money(0)}</strong></div>
               </div>
               <div class="field"><label>Discount %</label><div class="percent-input"><input id="totalDiscount" type="number" value="${billDiscount}" min="0" max="100" step="0.01" inputmode="decimal" oninput="clampBillDiscount(); updateBillSummary()"><span>%</span></div></div>
@@ -3210,7 +3223,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function receivedAmountChanged() {
       const receivedAmount = document.getElementById("receivedAmount");
-      if (receivedAmount) receivedAmount.dataset.manual = "true";
+      if (receivedAmount) {
+        receivedAmount.dataset.manual = "true";
+        receivedAmount.classList.remove("input-error");
+        receivedAmount.removeAttribute("aria-invalid");
+      }
+      document.getElementById("receivedAmountError")?.classList.add("hidden");
       updateBillSummary();
     }
     function paymentMethodChanged() {
@@ -3316,11 +3334,21 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const customerPhone = document.getElementById("customerPhone").value.trim();
       if (!customerName || !/^\d{11}$/.test(customerPhone)) return toast("Customer name and 11 digit phone number are required.");
       if (!cart.length) return toast("Add at least one item.");
+      const receivedAmountInput = document.getElementById("receivedAmount");
+      const receivedAmountRaw = receivedAmountInput?.value.trim() || "";
+      const receivedAmount = Number(receivedAmountRaw);
+      if (receivedAmountRaw === "" || !Number.isFinite(receivedAmount) || receivedAmount < 0) {
+        receivedAmountInput?.classList.add("input-error");
+        receivedAmountInput?.setAttribute("aria-invalid", "true");
+        document.getElementById("receivedAmountError")?.classList.remove("hidden");
+        receivedAmountInput?.focus();
+        return toast("Enter the received amount before saving and printing the bill.");
+      }
       const bill = {
         id: uid("b"), date: new Date().toISOString(), cashier: currentUser.username, customerName, customerPhone,
         saleMode: document.getElementById("saleMode").value, paymentMethod: document.getElementById("paymentMethod").value,
         paymentStatus: document.getElementById("paymentStatus").value,
-        bankRef: document.getElementById("bankRef").value, received: Number(document.getElementById("receivedAmount").value || 0),
+        bankRef: document.getElementById("bankRef").value, received: receivedAmount,
         billDiscountPercent: Math.max(0, Math.min(100, Number(document.getElementById("totalDiscount").value || 0))),
         items: cart.map(i => ({ ...i }))
       };
