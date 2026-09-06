@@ -653,9 +653,9 @@
       font-size: 13px;
       font-weight: 700;
     }
-    .report-sales-overview { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .sales-overview-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .report-breakdown-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .report-sales-overview .stat,
+    .sales-overview-grid .stat,
     .report-breakdown-grid .stat {
       min-width: 0;
       min-height: 142px;
@@ -664,13 +664,13 @@
       justify-content: center;
       padding: 20px;
     }
-    .report-sales-overview .stat strong,
+    .sales-overview-grid .stat strong,
     .report-breakdown-grid .stat strong {
       overflow-wrap: anywhere;
       font-size: 28px;
       line-height: 1.15;
     }
-    .report-sales-overview .stat small,
+    .sales-overview-grid .stat small,
     .report-breakdown-grid .stat small {
       line-height: 1.35;
     }
@@ -1864,7 +1864,7 @@
     @media (max-width: 1120px) {
       .content { padding: 18px; }
       .stats { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
-      .report-sales-overview .stat:last-child { grid-column: span 2; }
+      .sales-overview-grid .stat:last-child { grid-column: span 2; }
       .two-col, .pos-grid, .day-close-layout, .settings-layout, .store-settings-layout { grid-template-columns: 1fr; }
       .staff-hero, .staff-add-layout { grid-template-columns: 1fr; }
       .close-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1893,7 +1893,7 @@
       .topbar h2 { font-size: 18px; }
       .content { padding: 14px; }
       .stats, .form-grid { grid-template-columns: 1fr; }
-      .report-sales-overview,
+      .sales-overview-grid,
       .report-breakdown-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .form-grid .wide { grid-column: auto; }
       .top-actions { gap: 7px; }
@@ -1944,12 +1944,12 @@
       .product-tile { min-height: 132px; }
       .staff-actions { grid-template-columns: 1fr; }
       .summary .total { font-size: 20px; }
-      .report-sales-overview,
+      .sales-overview-grid,
       .report-breakdown-grid { grid-template-columns: 1fr; gap: 12px; }
-      .report-sales-overview .stat:last-child { grid-column: auto; }
-      .report-sales-overview .stat,
+      .sales-overview-grid .stat:last-child { grid-column: auto; }
+      .sales-overview-grid .stat,
       .report-breakdown-grid .stat { min-height: 120px; padding: 16px; }
-      .report-sales-overview .stat strong,
+      .sales-overview-grid .stat strong,
       .report-breakdown-grid .stat strong { font-size: 24px; }
       th, td { padding: 10px; }
     }
@@ -2776,8 +2776,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const today = todayKey();
       const month = monthKey();
       const todayBills = billsFor(today);
+      const yesterdayBills = billsFor(yesterdayKey());
+      const weekRange = periodRange("week");
+      const weekBills = state.bills.filter(b => dateInRange(recordDateKey(b.date), weekRange));
       const monthBills = state.bills.filter(b => recordDateKey(b.date).slice(0, 7) === month);
-      const profit = todayBills.reduce((s, b) => s + billTotals(b).profit, 0);
+      const todaySales = todayBills.reduce((s, b) => s + billTotals(b).total, 0);
+      const profit = todaySales - expensesFor(today);
       const low = state.products.filter(p => Number(p.stock) <= 5);
       const labels = [...Array(7)].map((_, i) => {
         const d = new Date(); d.setDate(d.getDate() - (6 - i)); return d.toISOString().slice(5, 10);
@@ -2789,11 +2793,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const bestDayValue = Math.max(...values, 0);
       const bestDayLabel = labels[values.indexOf(bestDayValue)] || "-";
       document.getElementById("dashboard").innerHTML = `
-        <div class="grid stats">
-          ${stat("Yesterday Sales", money(salesFor(yesterdayKey())), "Previous day")}
-          ${stat("Monthly Sales", money(monthBills.reduce((s,b)=>s+billTotals(b).total,0)), month)}
-          ${stat("Profit Overview", money(profit), "Today profit")}
-          ${stat("Expense Overview", money(expensesFor(today)), "Today expenses")}
+        <div class="grid stats sales-overview-grid dashboard-sales-overview">
+          ${stat("Today Sales", money(todaySales), `${todayBills.length} bills`)}
+          ${stat("Yesterday Sales", money(yesterdayBills.reduce((s,b)=>s+billTotals(b).total,0)), `${yesterdayBills.length} bills`)}
+          ${stat("This Week Sales", money(weekBills.reduce((s,b)=>s+billTotals(b).total,0)), `${weekBills.length} bills`)}
+          ${stat("This Month Sales", money(monthBills.reduce((s,b)=>s+billTotals(b).total,0)), `${monthBills.length} bills`)}
+          ${stat("Profit Overview", money(profit), "Today after expenses")}
         </div>
         <div class="grid two-col" style="margin-top:16px">
           <div class="card chart-card">
@@ -3397,7 +3402,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const todayOverview = salesOverview.find(item => item.label === "Today") || { sales: 0 };
       const todayProfit = todayOverview.sales - expensesFor(todayKey());
       document.getElementById("reports").innerHTML = `<div class="section-title"><h3>Sales Overview</h3><span class="badge">Live totals</span></div>
-      <div class="grid stats report-sales-overview">
+      <div class="grid stats sales-overview-grid report-sales-overview">
         ${salesOverview.map(item => stat(`${item.label} Sales`, money(item.sales), `${item.bills} bills`)).join("")}
         ${stat("Profit Overview", money(todayProfit), "Today after expenses")}
       </div>
