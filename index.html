@@ -641,6 +641,7 @@
     @keyframes fade { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .grid { display: grid; gap: 16px; }
     .stats { grid-template-columns: repeat(5, minmax(150px, 1fr)); }
+    .report-sales-overview { grid-template-columns: repeat(4, minmax(160px, 1fr)); margin-bottom: 16px; }
     .card {
       background: var(--card);
       border: 1px solid var(--line);
@@ -953,6 +954,23 @@
       padding-top: 14px;
     }
     .payment-fields .wide { grid-column: 1 / -1; }
+    .amount-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 42px;
+      margin-top: 8px;
+      padding: 9px 12px;
+      border: 1px solid #dfe7f1;
+      border-radius: 10px;
+      background: #f8fbff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .amount-status strong { color: var(--orange); font-size: 16px; }
+    .amount-status.settled strong { color: #16864b; }
     .percent-input {
       position: relative;
       display: flex;
@@ -1956,6 +1974,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const today = todayKey();
       if (period === "all") return { start: "0000-01-01", end: "9999-12-31", label: "All Time" };
       if (period === "today") return { start: today, end: today, label: "Today" };
+      if (period === "yesterday") {
+        const yesterday = yesterdayKey();
+        return { start: yesterday, end: yesterday, label: "Yesterday" };
+      }
       if (period === "week") {
         const date = dateFromKey(today);
         const day = date.getUTCDay() || 7;
@@ -2026,6 +2048,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     let cloudPullInFlight = false;
     let cloudOnline = false;
     let cloudMergeNeedsPush = false;
+    let settingsDraftDirty = false;
     let persistedStateSnapshot = JSON.parse(JSON.stringify(state));
     const inventoryCategories = ["MEN'S", "KID'S", "WOMEN"];
     const syncedCollections = ["users", "products", "bills", "attendance", "expenses", "staff", "stockHistory", "dayClosings", "notifications"];
@@ -2397,13 +2420,18 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const adminAlerts = currentUser?.role === "Owner"
         ? state.notifications.filter(item => item.audience === "Owner").slice(0, 10)
         : [];
+      const systemUpdate = currentUser?.role === "Owner" ? [{
+        title: "System Update Ready",
+        detail: "Footer drafts are protected, attendance logout is enforced, sales periods are available, and billing shows the live remaining amount.",
+        date: "2026-09-06T00:00:00+05:00"
+      }] : [];
       const low = state.products.filter(p => Number(p.stock) <= 5).map(p => ({
         title: "Low Stock",
         detail: `${p.name} has ${p.stock} items left.`
       }));
       const att = attendanceRequired() ? [{ title: "Attendance Required", detail: "Mark attendance before using the POS." }] : [];
       const cloud = [{ title: cloudOnline ? "Cloud Connected" : "Cloud Offline", detail: cloudOnline ? API_BASE_URL : "Using local data." }];
-      return [...adminAlerts, ...att, ...low, ...cloud].slice(0, 12);
+      return [...systemUpdate, ...adminAlerts, ...att, ...low, ...cloud].slice(0, 12);
     }
     function notificationHtml(item) {
       const date = item.date ? new Date(item.date).toLocaleString() : "";
@@ -2441,7 +2469,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         normalizeUserPermissions();
         normalizeAttendanceRecords();
         normalizeStaffRecords();
-        if (currentUser && activeSection !== "billing") {
+        if (currentUser && !activeEditorNeedsProtection()) {
           renderNav();
           render(activeSection);
         }
@@ -2450,9 +2478,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         document.getElementById("liveClock").textContent = new Date().toLocaleString();
       }, 30000);
       setInterval(() => {
-        if (!currentUser || document.visibilityState !== "visible" || cloudSaveTimer || activeSection === "billing") return;
+        if (!currentUser || document.visibilityState !== "visible" || cloudSaveTimer || activeEditorNeedsProtection()) return;
         pullCloudState(false).then(loaded => {
-          if (!loaded || !currentUser || activeSection === "billing") return;
+          if (!loaded || !currentUser || activeEditorNeedsProtection()) return;
           normalizeDeletedRecords();
           applyDeletedRecords();
           normalizeSettings();
@@ -2523,8 +2551,8 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         const items = notifications();
         panel.innerHTML = `<div class="section-title"><h3>Notifications</h3><button class="btn light icon" onclick="notificationPanel.classList.add('hidden')">x</button></div>` + (items.map(notificationHtml).join("") || `<div class="notice">No notifications.</div>`);
       };
-      window.addEventListener("storage", () => { state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state; if (activeSection !== "billing") render(activeSection); });
-      window.addEventListener("storage-lite", () => { if (activeSection !== "billing") render(activeSection); });
+      window.addEventListener("storage", () => { state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state; if (!activeEditorNeedsProtection()) render(activeSection); });
+      window.addEventListener("storage-lite", () => { if (!activeEditorNeedsProtection()) render(activeSection); });
       window.addEventListener("beforeunload", e => {
         if (!cashierExitNeedsAttention()) return;
         showCashierLogoutPrompt();
@@ -2533,6 +2561,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       });
     }
     async function syncSystem() {
+      if (activeSection === "settings" && settingsDraftDirty) return toast("Save Settings before syncing the system.");
       const pulled = await pullCloudState(true, true);
       if (!pulled) {
         state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state;
@@ -2589,6 +2618,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       renderNav();
       render(id);
       if (id === "billing") setTimeout(() => document.getElementById("scanInput")?.focus(), 80);
+    }
+    function activeEditorNeedsProtection() {
+      return activeSection === "billing" || (activeSection === "settings" && settingsDraftDirty);
     }
     function render(id) {
       const map = { dashboard: renderDashboard, inventory: renderInventory, billing: renderBilling, reports: renderReports, attendance: renderAttendance, dayclose: renderDayClose, expenses: renderExpenses, staff: renderStaff, users: renderUsers, settings: renderSettings };
@@ -2928,7 +2960,10 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               <div class="field"><label>Payment Method</label><select id="paymentMethod" onchange="paymentMethodChanged()"><option>Cash</option><option>Bank</option></select></div>
               <div class="field"><label>Payment Status</label><select id="paymentStatus" onchange="paymentStatusChanged()"><option>Paid</option><option>Pending</option></select></div>
               <div class="field"><label>Bank Reference</label><input id="bankRef" placeholder="Write bank/reference details"></div>
-              ${field("Received Amount", "receivedAmount", "", "number", 'min="0" step="0.01" inputmode="decimal" oninput="receivedAmountChanged()"')}
+              <div class="field"><label>Received Amount</label>
+                <input id="receivedAmount" type="number" min="0" step="0.01" inputmode="decimal" oninput="receivedAmountChanged()">
+                <div class="amount-status" id="remainingAmountStatus"><span>Remaining Amount</span><strong id="remainingAmountInline">${money(0)}</strong></div>
+              </div>
               <div class="field"><label>Discount %</label><div class="percent-input"><input id="totalDiscount" type="number" value="${billDiscount}" min="0" max="100" step="0.01" inputmode="decimal" oninput="clampBillDiscount(); updateBillSummary()"><span>%</span></div></div>
             </div>
             <div id="billSummary" class="summary"></div>
@@ -3054,12 +3089,17 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         receivedInput.value = total;
       }
       const received = Number(receivedInput?.value || 0);
+      const remaining = Math.max(0, total - received);
+      const remainingInline = document.getElementById("remainingAmountInline");
+      const remainingStatus = document.getElementById("remainingAmountStatus");
+      if (remainingInline) remainingInline.textContent = money(remaining);
+      if (remainingStatus) remainingStatus.classList.toggle("settled", remaining === 0);
       document.getElementById("billSummary").innerHTML = `
         <div><span>Subtotal</span><strong>${money(subtotal)}</strong></div>
         <div><span>Discount (${billDiscountPercent}% bill)</span><strong>${money(discount)}</strong></div>
         <div class="total"><span>Grand Total</span><strong>${money(total)}</strong></div>
         <div><span>Received</span><strong>${money(received)}</strong></div>
-        <div><span>Remaining</span><strong>${money(Math.max(0, total - received))}</strong></div>
+        <div><span>Remaining</span><strong>${money(remaining)}</strong></div>
         <div><span>Status</span><strong><span class="badge ${document.getElementById("paymentStatus")?.value === "Paid" ? "good" : "warn"}">${document.getElementById("paymentStatus")?.value || "Paid"}</span></strong></div>`;
     }
     function bindBillingAmountInputs() {
@@ -3223,7 +3263,16 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const payment = ["Cash", "Bank"].map(m => [m, periodBills.filter(b => b.paymentMethod === m).reduce((s,b)=>s+billTotals(b).total,0)]);
       const paidBills = periodBills.filter(b => billPaymentStatus(b) === "Paid");
       const pendingBills = periodBills.filter(b => billPaymentStatus(b) === "Pending");
-      document.getElementById("reports").innerHTML = `<div class="grid stats">
+      const salesOverview = ["yesterday", "today", "week", "month"].map(period => {
+        const overviewRange = periodRange(period);
+        const bills = state.bills.filter(bill => dateInRange(recordDateKey(bill.date), overviewRange));
+        return { label: overviewRange.label, sales: bills.reduce((sum, bill) => sum + billTotals(bill).total, 0), bills: bills.length };
+      });
+      document.getElementById("reports").innerHTML = `<div class="section-title"><h3>Sales Overview</h3><span class="badge">Live totals</span></div>
+      <div class="grid stats report-sales-overview">
+        ${salesOverview.map(item => stat(`${item.label} Sales`, money(item.sales), `${item.bills} bills`)).join("")}
+      </div>
+      <div class="grid stats">
         ${stat(`${range.label} Sales`, money(periodSales), `${periodBills.length} bills`)}
         ${stat("Date Range", `${range.start}`, `to ${range.end}`)}
         ${stat("Expenses", money(periodExpenses), range.label)}
@@ -3237,6 +3286,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         <div class="toolbar">
           <select id="reportPeriod" onchange="sessionStorage.setItem('bp-pos-report-period', this.value); renderReports()">
             <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
             <option value="week">This Week</option>
             <option value="month">This Month</option>
             <option value="all">All Time</option>
@@ -3808,18 +3858,20 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function showCashierLogoutPrompt() {
       const needsOut = markOutRequired();
       const attendedToday = hasAttendanceToday(currentUser?.username);
-      const title = needsOut ? "Complete Attendance" : attendedToday ? "Confirm Logout" : "Attendance Not Marked";
+      const title = needsOut ? "Complete Attendance" : attendedToday ? "Confirm Logout" : "Attendance Required";
       const message = needsOut
-        ? "Mark out all staff who are currently present before logging out, or continue without marking out."
+        ? "The POS cannot log out while staff are still marked present. Mark out all present staff first."
         : attendedToday
           ? "Your attendance is already complete. Do you want to log out?"
-          : "No attendance was marked today. You can return to attendance or log out without marking it.";
+          : "The POS cannot log out until attendance has been marked for today.";
       document.getElementById("modalRoot").innerHTML = `<div class="modal"><div class="modal-panel small-modal">
         <div class="section-title"><h3>${title}</h3><button class="btn light icon" onclick="closeModal()">x</button></div>
         <p class="muted">${message}</p>
         <div class="modal-actions">
           ${needsOut ? `<button class="btn orange" onclick="markOutAttendance(true); performLogout();">Mark Out All & Logout</button>` : ""}
-          <button class="btn ${needsOut || !attendedToday ? "ghost" : "orange"}" onclick="performLogout()">${needsOut ? "Logout Without Mark Out" : attendedToday ? "Logout" : "Logout Without Attendance"}</button>
+          ${attendedToday && !needsOut ? `<button class="btn orange" onclick="performLogout()">Logout</button>` : ""}
+          ${!attendedToday ? `<button class="btn orange" onclick="closeModal(); showSection('attendance')">Open Attendance</button>` : ""}
+          ${needsOut ? `<button class="btn light" onclick="closeModal(); showSection('attendance')">Review Attendance</button>` : ""}
           <button class="btn light" onclick="closeModal()">Cancel</button>
         </div>
       </div></div>`;
@@ -4112,7 +4164,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
             <span style="display:block;text-align:${state.settings.receiptFooterAlign || "center"}">${state.settings.receiptFooterEnabled === false ? "Footer disabled" : escapeHtml(state.settings.receiptFooter || "").replace(/\n/g, "<br>")}</span>
           </div>
         </div>
-        <div class="card settings-form-card">
+        <div class="card settings-form-card" id="storeSettingsEditor">
           <div class="settings-head"><h3>Store Settings</h3><span class="badge">Receipt Setup</span></div>
           <div class="settings-body">
             <div class="settings-form-grid">
@@ -4153,7 +4205,15 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       document.getElementById("setFooterAlign").value = state.settings.receiptFooterAlign || "center";
       document.getElementById("setFooterDivider").value = String(state.settings.receiptFooterDivider !== false);
       document.getElementById("setFooterEnabled").value = String(state.settings.receiptFooterEnabled !== false);
+      settingsDraftDirty = false;
+      document.querySelectorAll("#storeSettingsEditor input, #storeSettingsEditor textarea, #storeSettingsEditor select").forEach(control => {
+        control.addEventListener("input", markSettingsDraftDirty);
+        control.addEventListener("change", markSettingsDraftDirty);
+      });
       updateFooterCounter();
+    }
+    function markSettingsDraftDirty() {
+      settingsDraftDirty = true;
     }
     function updateFooterCounter() {
       const footer = document.getElementById("setFooter");
@@ -4164,6 +4224,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const footer = document.getElementById("setFooter");
       if (!footer) return;
       footer.value = text;
+      markSettingsDraftDirty();
       updateFooterCounter();
       footer.focus();
     }
@@ -4180,7 +4241,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         state.settings.receiptFooterEnabled = document.getElementById("setFooterEnabled").value === "true";
         state.settings.autoPrint = document.getElementById("setAutoPrint").value === "true";
         if (logo) state.settings.logo = logo;
-        save(); toast("Settings saved.");
+        settingsDraftDirty = false;
+        save(true);
+        toast("Settings saved and synced.");
       };
       if (file) { const r = new FileReader(); r.onload = () => finish(r.result); r.readAsDataURL(file); }
       else finish("");
