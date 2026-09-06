@@ -3563,7 +3563,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         staff.push({ name: cleanName, username: String(username || cleanName).trim(), role });
       };
       (state.staff || []).forEach(staffMember => addStaff(staffMember.name, staffMember.name, staffMember.role || "Staff"));
-      state.attendance.forEach(record => addStaff(record.name || record.username, record.staffUsername || record.username, record.role || "Cashier"));
       return staff.sort((a, b) => a.name.localeCompare(b.name));
     }
     function selectedAttendanceStaff() {
@@ -3604,7 +3603,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <span>${currentRecord ? `Last in: ${currentRecord.name || currentRecord.username} at ${currentRecord.time || "Absent"}${currentRecord.outTime ? ` - out ${currentRecord.outTime}` : ""}` : "Select staff person and mark attendance"}</span>
           <div class="form-grid" style="margin-top:10px">
             <div class="field wide"><label>Staff Person</label><select id="attendancePersonSelect" onchange="selectAttendanceStaff(this.value)" onkeydown="attendanceNameKey(event)">
-              ${hasStaffOptions ? staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}" ${staff.name === selectedStaffName ? "selected" : ""}>${staff.name}</option>`).join("") : `<option value="">No staff added</option>`}
+              ${hasStaffOptions ? staffOptions.map(staff => `<option value="${staff.name}" data-username="${staff.username}" data-role="${staff.role}" ${staff.name === selectedStaffName ? "selected" : ""}>${staff.name}</option>`).join("") : `<option value="">No staff added - use Staff tab</option>`}
             </select></div>
             <div class="field"><label>&nbsp;</label><button class="btn orange" onclick="markAttendance()" ${hasStaffOptions ? "" : "disabled"}>Mark Present</button></div>
             <div class="field"><label>&nbsp;</label><button class="btn danger" onclick="markAbsent()" ${hasStaffOptions ? "" : "disabled"}>Mark Absent</button></div>
@@ -4089,6 +4088,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const staff = { id: uid("s"), name, role, phone, remarks, createdAt: now, updatedAt: now };
       state.deleted.staff = state.deleted.staff.filter(id => id !== staff.id);
       state.staff.push(staff);
+      sessionStorage.setItem("bp-pos-selected-staff", staff.name);
       renderStaff();
       toast("Saving staff...");
       const cloudSaved = await save(true);
