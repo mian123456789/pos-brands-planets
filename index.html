@@ -969,6 +969,40 @@
       font-size: 13px;
       font-weight: 800;
     }
+    .whatsapp-receipt-modal { width: min(560px, 100%); }
+    .whatsapp-receipt-modal .section-title {
+      align-items: flex-start;
+      flex-direction: row;
+    }
+    .whatsapp-receipt-summary {
+      display: grid;
+      gap: 5px;
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-left: 4px solid #22a559;
+      border-radius: 10px;
+      background: #effaf4;
+      color: #145c35;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .whatsapp-message-preview {
+      max-height: 250px;
+      overflow: auto;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fbff;
+      color: #1c2738;
+      font: 13px/1.55 system-ui, sans-serif;
+      white-space: pre-wrap;
+    }
+    .btn.whatsapp {
+      background: #16864b;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(22,134,75,0.2);
+    }
+    .btn.whatsapp:hover { background: #11713e; }
     .pos-grid {
       display: grid;
       grid-template-columns: minmax(500px, 1.25fr) minmax(380px, 0.85fr);
@@ -3302,11 +3336,44 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       save();
       cart = [];
       billDiscount = 0;
-      if (print || state.settings.autoPrint) printReceipt(bill, "customer");
+      if (print || state.settings.autoPrint) printReceipt(bill, "customer", true);
       renderBilling();
       toast("Bill saved successfully.");
     }
-    function printReceipt(bill, copyType = "customer") {
+    function formatWhatsAppPhone(value) {
+      const digits = String(value || "").replace(/\D/g, "");
+      if (/^03\d{9}$/.test(digits)) return `92${digits.slice(1)}`;
+      if (/^923\d{9}$/.test(digits)) return digits;
+      return "";
+    }
+    function receiptWhatsAppMessage(bill) {
+      const total = money(billTotals(bill).total);
+      const outlet = state.settings.shopName || "Brands Planets";
+      return `\u{1F6CD}\u{FE0F} *Thank You for Shopping With Us!*\nHi ${bill.customerName} \u{1F44B}\nYour purchase at our outlet has been completed successfully. \u{2705}\n\n\u{1F9FE} Receipt No: ${bill.id}\n\u{1F4B0} Total Paid: ${total}\n\u{1F4CD} Outlet: ${outlet}\n\nThank you for visiting us. We hope to see you again soon! \u{2764}\u{FE0F}`;
+    }
+    function openWhatsAppReceiptMessage(billId) {
+      const bill = state.bills.find(item => item.id === billId);
+      if (!bill) return toast("Bill not found for WhatsApp message.");
+      const customerPhone = formatWhatsAppPhone(bill.customerPhone);
+      if (!customerPhone) return toast("Customer WhatsApp number is invalid.");
+      const url = `https://wa.me/${customerPhone}?text=${encodeURIComponent(receiptWhatsAppMessage(bill))}`;
+      window.open(url, "_blank", "noopener,noreferrer");
+      closeModal();
+    }
+    function showWhatsAppReceiptPrompt(billId) {
+      const bill = state.bills.find(item => item.id === billId);
+      if (!bill) return;
+      const customerPhone = formatWhatsAppPhone(bill.customerPhone);
+      if (!customerPhone) return toast("Receipt printed, but the customer WhatsApp number is invalid.");
+      const message = receiptWhatsAppMessage(bill);
+      document.getElementById("modalRoot").innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="whatsappReceiptTitle"><div class="modal-panel whatsapp-receipt-modal">
+        <div class="section-title"><div><h3 id="whatsappReceiptTitle">Send receipt on WhatsApp</h3><small class="muted">Customer message is ready</small></div><button class="btn light icon" onclick="closeModal()" aria-label="Close">x</button></div>
+        <div class="whatsapp-receipt-summary"><span>${escapeHtml(bill.customerName)}</span><span>${escapeHtml(bill.customerPhone)} - ${escapeHtml(bill.id)}</span></div>
+        <div class="whatsapp-message-preview">${escapeHtml(message)}</div>
+        <div class="modal-actions"><button class="btn whatsapp" onclick="openWhatsAppReceiptMessage('${bill.id}')">Send WhatsApp</button><button class="btn light" onclick="closeModal()">Not Now</button></div>
+      </div></div>`;
+    }
+    function printReceipt(bill, copyType = "customer", offerWhatsApp = false) {
       const settings = state.settings;
       const t = billTotals(bill);
       const balance = paymentBalance(t.total, bill.received);
@@ -3345,12 +3412,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         ${footerHtml}
       </div></div>`;
       const copies = copyType === "cashier" ? receiptHtml("Cashier Copy") : receiptHtml("Customer Copy");
-      printReceiptFromCurrentPage(copies);
+      printReceiptFromCurrentPage(copies, offerWhatsApp ? () => showWhatsAppReceiptPrompt(bill.id) : null);
     }
     function printThermalReceipt(receiptMarkup) {
       printReceiptFromCurrentPage(receiptMarkup);
     }
-    function printReceiptFromCurrentPage(receiptMarkup) {
+    function printReceiptFromCurrentPage(receiptMarkup, onComplete = null) {
       const printArea = document.getElementById("printArea");
       printArea.innerHTML = receiptMarkup;
       printArea.classList.remove("hidden");
@@ -3361,8 +3428,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         img.onload = resolve;
         img.onerror = resolve;
       }));
+      let printFinished = false;
       const finishPrint = () => {
+        if (printFinished) return;
+        printFinished = true;
         window.removeEventListener("afterprint", finishPrint);
+        if (onComplete) setTimeout(onComplete, 250);
         setTimeout(() => {
           document.body.classList.remove("receipt-printing");
           printArea.classList.add("hidden");
