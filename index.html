@@ -2716,6 +2716,16 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       if (bill.paymentStatus === "Paid" || bill.paymentStatus === "Pending") return bill.paymentStatus;
       return Number(bill.received || 0) >= billTotals(bill).total ? "Paid" : "Pending";
     }
+    function paymentBalance(total, received) {
+      const totalAmount = Math.max(0, Number(total || 0));
+      const receivedAmount = Math.max(0, Number(received || 0));
+      const isChange = receivedAmount > totalAmount;
+      return {
+        label: isChange ? "Change" : "Remaining",
+        amount: Math.abs(totalAmount - receivedAmount),
+        settled: receivedAmount >= totalAmount
+      };
+    }
     function billsFor(date) { return state.bills.filter(b => recordDateKey(b.date) === date); }
     function salesFor(date) { return billsFor(date).reduce((s, b) => s + billTotals(b).total, 0); }
     function expensesFor(date) { return state.expenses.filter(e => e.date === date).reduce((s, e) => s + Number(e.amount), 0); }
@@ -3033,7 +3043,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
               <div class="field"><label>Bank Reference</label><input id="bankRef" placeholder="Write bank/reference details"></div>
               <div class="field"><label>Received Amount</label>
                 <input id="receivedAmount" type="number" min="0" step="0.01" inputmode="decimal" oninput="receivedAmountChanged()">
-                <div class="amount-status" id="remainingAmountStatus"><span>Remaining Amount</span><strong id="remainingAmountInline">${money(0)}</strong></div>
+                <div class="amount-status" id="remainingAmountStatus"><span id="remainingAmountLabel">Remaining Amount</span><strong id="remainingAmountInline">${money(0)}</strong></div>
               </div>
               <div class="field"><label>Discount %</label><div class="percent-input"><input id="totalDiscount" type="number" value="${billDiscount}" min="0" max="100" step="0.01" inputmode="decimal" oninput="clampBillDiscount(); updateBillSummary()"><span>%</span></div></div>
             </div>
@@ -3160,17 +3170,19 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         receivedInput.value = total;
       }
       const received = Number(receivedInput?.value || 0);
-      const remaining = Math.max(0, total - received);
+      const balance = paymentBalance(total, received);
+      const remainingLabel = document.getElementById("remainingAmountLabel");
       const remainingInline = document.getElementById("remainingAmountInline");
       const remainingStatus = document.getElementById("remainingAmountStatus");
-      if (remainingInline) remainingInline.textContent = money(remaining);
-      if (remainingStatus) remainingStatus.classList.toggle("settled", remaining === 0);
+      if (remainingLabel) remainingLabel.textContent = `${balance.label} Amount`;
+      if (remainingInline) remainingInline.textContent = money(balance.amount);
+      if (remainingStatus) remainingStatus.classList.toggle("settled", balance.settled);
       document.getElementById("billSummary").innerHTML = `
         <div><span>Subtotal</span><strong>${money(subtotal)}</strong></div>
         <div><span>Discount (${billDiscountPercent}% bill)</span><strong>${money(discount)}</strong></div>
         <div class="total"><span>Grand Total</span><strong>${money(total)}</strong></div>
         <div><span>Received</span><strong>${money(received)}</strong></div>
-        <div><span>Remaining</span><strong>${money(remaining)}</strong></div>
+        <div><span>${balance.label}</span><strong>${money(balance.amount)}</strong></div>
         <div><span>Status</span><strong><span class="badge ${document.getElementById("paymentStatus")?.value === "Paid" ? "good" : "warn"}">${document.getElementById("paymentStatus")?.value || "Paid"}</span></strong></div>`;
     }
     function bindBillingAmountInputs() {
@@ -3250,6 +3262,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     function printReceipt(bill, copyType = "customer") {
       const settings = state.settings;
       const t = billTotals(bill);
+      const balance = paymentBalance(t.total, bill.received);
       const receiptAddress = escapeHtml(settings.address || "").replace(/\n/g, "<br>");
       const receiptEmail = escapeHtml(settings.email || "");
       const footerAlign = ["left", "center", "right"].includes(settings.receiptFooterAlign) ? settings.receiptFooterAlign : "center";
@@ -3278,7 +3291,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
           <div><span>Subtotal</span><strong>${money(t.subtotal)}</strong></div>
           <div class="receipt-grand"><span>Grand Total</span><strong>${money(t.total)}</strong></div>
           <div><span>Received</span><strong>${money(bill.received)}</strong></div>
-          <div><span>Remaining</span><strong>${money(Math.max(0, t.total - bill.received))}</strong></div>
+          <div><span>${balance.label}</span><strong>${money(balance.amount)}</strong></div>
         </div>
         <div class="line"></div>
         <div class="receipt-meta"><div><span>Payment</span><strong>${bill.paymentMethod} ${bill.bankRef || ""}</strong></div></div>
