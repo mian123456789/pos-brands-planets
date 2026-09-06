@@ -2738,7 +2738,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const bestDayLabel = labels[values.indexOf(bestDayValue)] || "-";
       document.getElementById("dashboard").innerHTML = `
         <div class="grid stats">
-          ${stat("Today Sales", money(salesFor(today)), `${todayBills.length} bills`)}
           ${stat("Yesterday Sales", money(salesFor(yesterdayKey())), "Previous day")}
           ${stat("Monthly Sales", money(monthBills.reduce((s,b)=>s+billTotals(b).total,0)), month)}
           ${stat("Profit Overview", money(profit), "Today profit")}
