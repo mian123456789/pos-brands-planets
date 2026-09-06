@@ -865,6 +865,78 @@
       justify-content: flex-end;
       margin-top: 18px;
     }
+    .attendance-exit-alert {
+      width: min(560px, 100%);
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid #ffd6bd;
+    }
+    .attendance-exit-head {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 20px;
+      background: #fff7f1;
+      border-bottom: 1px solid #ffe1ce;
+    }
+    .attendance-exit-icon {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: var(--orange);
+      color: #fff;
+      font-size: 24px;
+      font-weight: 900;
+      box-shadow: 0 8px 20px rgba(244,123,32,0.24);
+    }
+    .attendance-exit-copy { min-width: 0; flex: 1; }
+    .attendance-exit-copy h3 { margin: 0 0 5px; color: var(--blue); }
+    .attendance-exit-copy p { margin: 0; line-height: 1.5; }
+    .attendance-exit-body { padding: 18px 20px 20px; }
+    .attendance-exit-label {
+      display: block;
+      margin-bottom: 9px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .attendance-exit-list {
+      display: grid;
+      gap: 8px;
+      max-height: 210px;
+      margin: 0;
+      padding: 0;
+      overflow: auto;
+      list-style: none;
+    }
+    .attendance-exit-person {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 48px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #f8fbff;
+    }
+    .attendance-exit-person strong { color: var(--blue); }
+    .attendance-exit-person span { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .attendance-exit-alert .modal-actions { padding-top: 2px; }
+    .attendance-exit-error {
+      margin: 12px 0 0;
+      padding: 10px 12px;
+      border: 1px solid #fecaca;
+      border-radius: 10px;
+      background: #fef2f2;
+      color: #b91c1c;
+      font-size: 13px;
+      font-weight: 800;
+    }
     .pos-grid {
       display: grid;
       grid-template-columns: minmax(500px, 1.25fr) minmax(380px, 0.85fr);
@@ -1915,7 +1987,7 @@
           <span class="role-pill" id="signedIn"></span>
           <button class="btn light sync-btn" id="syncBtn" title="Sync and refresh system">Sync</button>
           <button class="btn light icon notify-icon" id="notifyBtn" title="Notifications" aria-label="Notifications"><span></span></button>
-          <button class="btn ghost" id="logoutBtn">Logout</button>
+          <button class="btn ghost" id="logoutBtn">Close System</button>
         </div>
       </header>
       <div id="notificationPanel" class="notification-panel card hidden"></div>
@@ -2553,12 +2625,6 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       };
       window.addEventListener("storage", () => { state = JSON.parse(localStorage.getItem("bp-pos-state") || "null") || state; if (!activeEditorNeedsProtection()) render(activeSection); });
       window.addEventListener("storage-lite", () => { if (!activeEditorNeedsProtection()) render(activeSection); });
-      window.addEventListener("beforeunload", e => {
-        if (!cashierExitNeedsAttention()) return;
-        showCashierLogoutPrompt();
-        e.preventDefault();
-        e.returnValue = "";
-      });
     }
     async function syncSystem() {
       if (activeSection === "settings" && settingsDraftDirty) return toast("Save Settings before syncing the system.");
@@ -2582,9 +2648,9 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
     }
     function logout() {
       if (currentUser?.role === "Cashier") return showCashierLogoutPrompt();
-      performLogout();
+      performLogout(true);
     }
-    function performLogout() {
+    function performLogout(closeSystem = false) {
       sessionStorage.removeItem("bp-pos-session");
       sessionStorage.removeItem("bp-pos-active-section");
       currentUser = null;
@@ -2593,6 +2659,12 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       document.getElementById("loginPage").classList.remove("hidden");
       document.getElementById("password").value = "";
       document.getElementById("username").focus();
+      if (closeSystem) {
+        try { window.close(); } catch (error) {}
+        setTimeout(() => {
+          if (!window.closed) showLoginMessage("System closed securely. You can now close this browser tab.");
+        }, 150);
+      }
     }
     function showApp() {
       document.getElementById("loginPage").classList.add("hidden");
@@ -3814,7 +3886,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       renderAttendance();
       toast("Attendance deleted.");
     }
-    function completeAttendanceRecords(records, successMessage, skipToast = false) {
+    async function completeAttendanceRecords(records, successMessage, skipToast = false) {
       if (!records.length) {
         if (!skipToast) toast("No present staff are waiting to mark out.");
         return false;
@@ -3827,9 +3899,17 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         record.outAt = outAt;
         record.status = "Completed";
       });
-      save(true);
+      const cloudSaved = await save(true);
       if (activeSection === "attendance") renderAttendance();
-      if (!skipToast) toast(successMessage);
+      if (!skipToast) toast(cloudSaved ? successMessage : `${successMessage} Saved locally; cloud sync is unavailable.`);
+      if (!cloudSaved && skipToast) {
+        const error = document.getElementById("attendanceExitError");
+        if (error) {
+          error.textContent = "Attendance was saved on this device, but the backend did not respond. Keep the system open and use Sync before closing.";
+          error.classList.remove("hidden");
+        }
+        return false;
+      }
       return true;
     }
     function markOutSelectedAttendance() {
@@ -3854,24 +3934,44 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
         skipToast
       );
     }
+    async function markOutAllAndCloseSystem() {
+      const completed = await markOutAttendance(true);
+      if (completed) performLogout(true);
+    }
+    function reviewAttendanceBeforeClose() {
+      closeModal();
+      showSection("attendance");
+    }
     function showCashierLogoutPrompt() {
       const needsOut = markOutRequired();
       const attendedToday = hasAttendanceToday(currentUser?.username);
-      const title = needsOut ? "Complete Attendance" : attendedToday ? "Confirm Logout" : "Attendance Required";
+      const openRecords = openAttendanceRecordsToday();
+      const uniqueOpenRecords = [...new Map(openRecords.map(record => [record.staffId || record.name || record.username, record])).values()];
+      const title = needsOut ? "Attendance must be completed" : attendedToday ? "Close POS system?" : "Attendance is required";
       const message = needsOut
-        ? "The POS cannot log out while staff are still marked present. Mark out all present staff first."
+        ? `${uniqueOpenRecords.length} ${uniqueOpenRecords.length === 1 ? "staff member is" : "staff members are"} still marked present. Mark everyone out or review attendance before closing.`
         : attendedToday
-          ? "Your attendance is already complete. Do you want to log out?"
-          : "The POS cannot log out until attendance has been marked for today.";
-      document.getElementById("modalRoot").innerHTML = `<div class="modal"><div class="modal-panel small-modal">
-        <div class="section-title"><h3>${title}</h3><button class="btn light icon" onclick="closeModal()">x</button></div>
-        <p class="muted">${message}</p>
-        <div class="modal-actions">
-          ${needsOut ? `<button class="btn orange" onclick="markOutAttendance(true); performLogout();">Mark Out All & Logout</button>` : ""}
-          ${attendedToday && !needsOut ? `<button class="btn orange" onclick="performLogout()">Logout</button>` : ""}
-          ${!attendedToday ? `<button class="btn orange" onclick="closeModal(); showSection('attendance')">Open Attendance</button>` : ""}
-          ${needsOut ? `<button class="btn light" onclick="closeModal(); showSection('attendance')">Review Attendance</button>` : ""}
-          <button class="btn light" onclick="closeModal()">Cancel</button>
+          ? "Attendance is complete. The POS will sign out and close this browser tab."
+          : "Mark attendance before closing the POS system.";
+      const staffList = needsOut ? `<span class="attendance-exit-label">Still present</span><ul class="attendance-exit-list">${uniqueOpenRecords.map(record => `
+        <li class="attendance-exit-person"><strong>${escapeHtml(record.name || record.username || "Staff")}</strong><span>In ${escapeHtml(record.time || "Time not recorded")}</span></li>
+      `).join("")}</ul>` : "";
+      document.getElementById("modalRoot").innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="attendanceExitTitle"><div class="modal-panel attendance-exit-alert">
+        <div class="attendance-exit-head">
+          <div class="attendance-exit-icon" aria-hidden="true">!</div>
+          <div class="attendance-exit-copy"><h3 id="attendanceExitTitle">${title}</h3><p class="muted">${message}</p></div>
+          <button class="btn light icon" onclick="closeModal()" aria-label="Cancel closing">x</button>
+        </div>
+        <div class="attendance-exit-body">
+          ${staffList}
+          <p id="attendanceExitError" class="attendance-exit-error hidden" role="alert"></p>
+          <div class="modal-actions">
+            ${needsOut ? `<button class="btn orange" onclick="markOutAllAndCloseSystem()">Mark Out All & Close</button>` : ""}
+            ${attendedToday && !needsOut ? `<button class="btn orange" onclick="performLogout(true)">Close System</button>` : ""}
+            ${!attendedToday ? `<button class="btn orange" onclick="reviewAttendanceBeforeClose()">Open Attendance</button>` : ""}
+            ${needsOut ? `<button class="btn light" onclick="reviewAttendanceBeforeClose()">Review Attendance</button>` : ""}
+            <button class="btn light" onclick="closeModal()">Cancel</button>
+          </div>
         </div>
       </div></div>`;
     }
