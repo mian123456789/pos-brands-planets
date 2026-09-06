@@ -3347,7 +3347,7 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const payment = ["Cash", "Bank"].map(m => [m, periodBills.filter(b => b.paymentMethod === m).reduce((s,b)=>s+billTotals(b).total,0)]);
       const paidBills = periodBills.filter(b => billPaymentStatus(b) === "Paid");
       const pendingBills = periodBills.filter(b => billPaymentStatus(b) === "Pending");
-      const salesOverview = ["yesterday", "today", "week", "month"].map(period => {
+      const salesOverview = ["yesterday", "week", "month"].map(period => {
         const overviewRange = periodRange(period);
         const bills = state.bills.filter(bill => dateInRange(recordDateKey(bill.date), overviewRange));
         return { label: overviewRange.label, sales: bills.reduce((sum, bill) => sum + billTotals(bill).total, 0), bills: bills.length };
