@@ -641,7 +641,39 @@
     @keyframes fade { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .grid { display: grid; gap: 16px; }
     .stats { grid-template-columns: repeat(5, minmax(150px, 1fr)); }
-    .report-sales-overview { grid-template-columns: repeat(4, minmax(160px, 1fr)); margin-bottom: 16px; }
+    .report-sales-overview { margin-bottom: 24px; }
+    .report-breakdown-title {
+      margin-top: 4px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+    .report-breakdown-title p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .report-sales-overview { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .report-breakdown-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .report-sales-overview .stat,
+    .report-breakdown-grid .stat {
+      min-width: 0;
+      min-height: 142px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 20px;
+    }
+    .report-sales-overview .stat strong,
+    .report-breakdown-grid .stat strong {
+      overflow-wrap: anywhere;
+      font-size: 28px;
+      line-height: 1.15;
+    }
+    .report-sales-overview .stat small,
+    .report-breakdown-grid .stat small {
+      line-height: 1.35;
+    }
     .card {
       background: var(--card);
       border: 1px solid var(--line);
@@ -1832,6 +1864,7 @@
     @media (max-width: 1120px) {
       .content { padding: 18px; }
       .stats { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+      .report-sales-overview .stat:last-child { grid-column: span 2; }
       .two-col, .pos-grid, .day-close-layout, .settings-layout, .store-settings-layout { grid-template-columns: 1fr; }
       .staff-hero, .staff-add-layout { grid-template-columns: 1fr; }
       .close-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1860,6 +1893,8 @@
       .topbar h2 { font-size: 18px; }
       .content { padding: 14px; }
       .stats, .form-grid { grid-template-columns: 1fr; }
+      .report-sales-overview,
+      .report-breakdown-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .form-grid .wide { grid-column: auto; }
       .top-actions { gap: 7px; }
       .top-actions .role-pill { order: -1; flex: 1 1 100%; justify-content: center; }
@@ -1909,6 +1944,13 @@
       .product-tile { min-height: 132px; }
       .staff-actions { grid-template-columns: 1fr; }
       .summary .total { font-size: 20px; }
+      .report-sales-overview,
+      .report-breakdown-grid { grid-template-columns: 1fr; gap: 12px; }
+      .report-sales-overview .stat:last-child { grid-column: auto; }
+      .report-sales-overview .stat,
+      .report-breakdown-grid .stat { min-height: 120px; padding: 16px; }
+      .report-sales-overview .stat strong,
+      .report-breakdown-grid .stat strong { font-size: 24px; }
       th, td { padding: 10px; }
     }
     @media print {
@@ -3347,17 +3389,20 @@ const money = n => "Rs " + Number(n || 0).toLocaleString("en-PK", { maximumFract
       const payment = ["Cash", "Bank"].map(m => [m, periodBills.filter(b => b.paymentMethod === m).reduce((s,b)=>s+billTotals(b).total,0)]);
       const paidBills = periodBills.filter(b => billPaymentStatus(b) === "Paid");
       const pendingBills = periodBills.filter(b => billPaymentStatus(b) === "Pending");
-      const salesOverview = ["yesterday", "week", "month"].map(period => {
+      const salesOverview = ["today", "yesterday", "week", "month"].map(period => {
         const overviewRange = periodRange(period);
         const bills = state.bills.filter(bill => dateInRange(recordDateKey(bill.date), overviewRange));
         return { label: overviewRange.label, sales: bills.reduce((sum, bill) => sum + billTotals(bill).total, 0), bills: bills.length };
       });
+      const todayOverview = salesOverview.find(item => item.label === "Today") || { sales: 0 };
+      const todayProfit = todayOverview.sales - expensesFor(todayKey());
       document.getElementById("reports").innerHTML = `<div class="section-title"><h3>Sales Overview</h3><span class="badge">Live totals</span></div>
       <div class="grid stats report-sales-overview">
         ${salesOverview.map(item => stat(`${item.label} Sales`, money(item.sales), `${item.bills} bills`)).join("")}
+        ${stat("Profit Overview", money(todayProfit), "Today after expenses")}
       </div>
-      <div class="grid stats">
-        ${stat(`${range.label} Sales`, money(periodSales), `${periodBills.length} bills`)}
+      <div class="section-title report-breakdown-title"><div><h3>${range.label} Breakdown</h3><p>${range.start} to ${range.end}</p></div><span class="badge">${periodBills.length} bills</span></div>
+      <div class="grid stats report-breakdown-grid">
         ${stat("Date Range", `${range.start}`, `to ${range.end}`)}
         ${stat("Expenses", money(periodExpenses), range.label)}
         ${stat("Net Sales", money(periodSales - periodExpenses), "After expenses")}
