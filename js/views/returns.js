@@ -1,5 +1,5 @@
 /*
- * Returns & exchanges. The refund is always "what the customer paid before"
+ * Exchanges (exchange-only policy, no cash refunds). The price difference is always "what the customer paid before"
  * minus "what the remaining items cost under the invoice's original pricing"
  * (including its Buy X Get Y snapshot), so a free item can never be refunded
  * as if it had been paid for.
@@ -8,7 +8,8 @@ Views.returns = (() => {
   let root = null;
   let query = "";
   let billId = "";
-  let mode = "return";
+  // Store policy: exchange only — returned items must be swapped, never refunded in cash.
+  const mode = "exchange";
   let picks = {};
   let reason = RETURN_REASONS[0];
   let note = "";
@@ -126,9 +127,14 @@ Views.returns = (() => {
     const lines = currentLines(bill);
     const change = computeChange(bill);
     const count = change.returned.reduce((total, item) => total + item.qty, 0);
-    const hasSomething = count > 0 || (mode === "exchange" && replacements.length);
     const diff = change.netChange;
-    const verdict = diff < 0 ? { label: "Refund to customer", tone: "bad", amount: -diff } : diff > 0 ? { label: "Customer pays", tone: "good", amount: diff } : { label: "Even exchange", tone: "info", amount: 0 };
+    const hasSomething = count > 0 && replacements.length > 0 && diff >= 0;
+    const verdict = diff < 0
+      ? { label: "Add more items (no refunds)", tone: "bad", amount: -diff }
+      : diff > 0 ? { label: "Customer pays", tone: "good", amount: diff } : { label: "Even exchange", tone: "info", amount: 0 };
+    const blocker = !count ? "Select the item(s) the customer is bringing back."
+      : !replacements.length ? "Add the new item(s) the customer is taking."
+      : diff < 0 ? `Exchange only — no cash refunds. Pick new items worth at least ${money(-diff)} more.` : "";
     return `<div class="split-main">
       <div class="stack">
         <div class="card card-pad">
@@ -136,10 +142,7 @@ Views.returns = (() => {
             <div><h3 style="font-size:17px">${esc(bill.id)}</h3><p class="muted" style="font-size:13px">${fmtDateTime(bill.date)} · ${esc(bill.customerName || "Walk-in")} ${bill.customerPhone ? `· ${esc(bill.customerPhone)}` : ""} · paid ${money(billNetTotal(bill))}</p></div>
             <button class="btn btn-ghost btn-sm" data-change-bill type="button">${icon("chevronLeft", 16)} Choose another sale</button>
           </div>
-          <div class="segmented" id="retMode" style="margin-bottom:14px">
-            <button class="${mode === "return" ? "active" : ""}" data-mode="return" type="button">${icon("returns", 15)} Return</button>
-            <button class="${mode === "exchange" ? "active" : ""}" data-mode="exchange" type="button">${icon("refresh", 15)} Exchange</button>
-          </div>
+          <div class="badge info" style="margin-bottom:14px">${icon("returns", 13)} Exchange only · no cash refunds</div>
           <div class="stack" style="gap:8px" id="retLines">${lines.map(line => lineRow(line, bill)).join("")}</div>
         </div>
         ${mode === "exchange" ? `<div class="card card-pad" id="repBox">${replacementHtml()}</div>` : ""}
@@ -149,7 +152,7 @@ Views.returns = (() => {
           <div class="form-section">
             <div class="field"><label>Reason</label><select id="retReason">${RETURN_REASONS.map(item => `<option ${reason === item ? "selected" : ""}>${item}</option>`).join("")}</select></div>
             <div class="field"><label>Note ${reason === "Other" ? "*" : `<span class="faint">(optional)</span>`}</label><input id="retNote" value="${esc(note)}" placeholder="Details for the record"></div>
-            <label class="check"><span class="switch"><input type="checkbox" id="retRestock" ${restock ? "checked" : ""}><span></span></span> Put returned items back in stock</label>
+            <label class="check"><span class="switch"><input type="checkbox" id="retRestock" ${restock ? "checked" : ""}><span></span></span> Put the items coming back into stock (turn off for damaged items)</label>
           </div>
         </div>
         <div class="card card-pad">
@@ -161,8 +164,9 @@ Views.returns = (() => {
             ${bill.v === 2 && (bill.promoSnapshot || []).length ? `<div class="sum-row promo"><span>🎁 Deal re-applied to what the customer keeps</span></div>` : ""}
             <div class="sum-row total"><span>${verdict.label}</span><strong style="color:var(--${verdict.tone})">${money(verdict.amount)}</strong></div>
           </div>
-          ${diff !== 0 ? `<div class="field" style="margin-top:12px"><label>${diff < 0 ? "Refund method" : "Payment method"}</label><select id="retMethod">${PAYMENT_METHODS.filter(item => item.id !== "Split").map(item => `<option ${method === item.id ? "selected" : ""}>${item.id}</option>`).join("")}</select></div>` : ""}
-          <button class="btn btn-accent btn-xl btn-block" id="retProcess" type="button" style="margin-top:14px" ${hasSomething ? "" : "disabled"}>${icon("check", 20)} Process ${mode}</button>
+          ${diff > 0 ? `<div class="field" style="margin-top:12px"><label>Payment method</label><select id="retMethod">${PAYMENT_METHODS.filter(item => item.id !== "Split").map(item => `<option ${method === item.id ? "selected" : ""}>${item.id}</option>`).join("")}</select></div>` : ""}
+          ${blocker ? `<div class="form-error" style="margin-top:12px">${esc(blocker)}</div>` : ""}
+          <button class="btn btn-accent btn-xl btn-block" id="retProcess" type="button" style="margin-top:14px" ${hasSomething ? "" : "disabled"}>${icon("check", 20)} Process exchange</button>
         </div>
       </div>
     </div>`;
@@ -198,7 +202,6 @@ Views.returns = (() => {
 
   function selectBill(id) {
     billId = id;
-    mode = "return";
     reset();
     draw();
   }
@@ -245,11 +248,14 @@ Views.returns = (() => {
       return;
     }
     const match = barcodeMap().get(String(code).toLowerCase());
-    if (mode === "exchange" && match) return addReplacement(match.product.id, match.variant?.id);
-    const line = currentLines(bill).find(item => item.qty > (picks[item.key] || 0) && match && item.id === match.product.id && (!match.variant || item.variantId === match.variant.id));
-    if (!line) return toast("That item isn't on this invoice (or is already fully returned).", "warn");
-    picks[line.key] = (picks[line.key] || 0) + 1;
-    draw();
+    if (!match) return toast(`No product found for "${code}".`, "error");
+    // An item from this invoice that isn't selected yet = coming back; anything else = the new item.
+    const line = currentLines(bill).find(item => item.qty > (picks[item.key] || 0) && item.id === match.product.id && (!match.variant || item.variantId === match.variant.id));
+    if (line && !replacements.length) {
+      picks[line.key] = (picks[line.key] || 0) + 1;
+      return draw();
+    }
+    addReplacement(match.product.id, match.variant?.id);
   }
 
   async function process() {
@@ -257,7 +263,9 @@ Views.returns = (() => {
     if (!bill) return;
     if (reason === "Other" && !note.trim()) return toast("Add a note explaining the reason.", "warn");
     const change = computeChange(bill);
-    if (!change.returned.length && !change.replacementLines.length) return toast("Select at least one item.", "warn");
+    if (!change.returned.length) return toast("Select the item(s) the customer is bringing back.", "warn");
+    if (!change.replacementLines.length) return toast("Add the new item(s) for the exchange — cash refunds aren't allowed.", "warn");
+    if (change.netChange < 0) return toast(`Exchange only — pick new items worth at least ${money(-change.netChange)} more.`, "warn");
     for (const line of change.replacementLines) {
       const needed = change.replacementLines.filter(item => item.id === line.id && item.variantId === line.variantId).reduce((total, item) => total + item.qty, 0);
       if (needed > variantStock(line.id, line.variantId)) return toast(`Not enough stock for ${line.name} ${[line.size, line.color].filter(Boolean).join(" ")}.`, "error");
@@ -265,9 +273,9 @@ Views.returns = (() => {
     const diff = change.netChange;
     const summary = `${change.returned.map(item => `${item.name} ${[item.size, item.color].filter(Boolean).join("/")} x${item.qty}`).join(", ") || "no items returned"}${change.replacementLines.length ? `<br>New: ${change.replacementLines.map(item => `${item.name} ${[item.size, item.color].filter(Boolean).join("/")} x${item.qty}`).join(", ")}` : ""}`;
     const ok = await UI.confirm({
-      title: `Process ${mode}?`,
-      message: `${esc(summary)}<br><br><strong>${diff < 0 ? `Refund ${money(-diff)} by ${method}` : diff > 0 ? `Collect ${money(diff)} by ${method}` : "No money changes hands"}</strong>${restock ? "" : "<br>Returned items will NOT go back into stock."}`,
-      confirmText: `Confirm ${mode}`,
+      title: "Process exchange?",
+      message: `${esc(summary)}<br><br><strong>${diff > 0 ? `Collect ${money(diff)} by ${method}` : "Even exchange — no money changes hands"}</strong>${restock ? "" : "<br>Items coming back will NOT go back into stock."}`,
+      confirmText: "Confirm exchange",
       tone: "primary",
       iconName: "returns"
     });
@@ -288,18 +296,18 @@ Views.returns = (() => {
       netChange: diff,
       method: diff ? method : ""
     };
-    if (restock) record.returned.forEach(item => addStockMove({ productId: item.id, variantId: item.variantId, qty: item.qty, type: mode === "exchange" ? "exchange-in" : "return", ref: bill.id, note: reason }));
+    if (restock) record.returned.forEach(item => addStockMove({ productId: item.id, variantId: item.variantId, qty: item.qty, type: "exchange-in", ref: bill.id, note: reason }));
     record.replacement.forEach(item => addStockMove({ productId: item.id, variantId: item.variantId, qty: -item.qty, type: "exchange-out", ref: bill.id, note: reason }));
     state.returns.push(record);
-    audit(mode === "exchange" ? "exchange.create" : "return.create", "bill", bill.id, `${mode === "exchange" ? "Exchange" : "Return"} on ${bill.id}: ${record.returned.reduce((t, i) => t + i.qty, 0)} returned, ${record.replacement.reduce((t, i) => t + i.qty, 0)} new · ${diff < 0 ? `refund ${money(-diff)}` : diff > 0 ? `collected ${money(diff)}` : "even"} · ${reason}`);
+    audit("exchange.create", "bill", bill.id, `Exchange on ${bill.id}: ${record.returned.reduce((t, i) => t + i.qty, 0)} back, ${record.replacement.reduce((t, i) => t + i.qty, 0)} new · ${diff > 0 ? `collected ${money(diff)}` : "even"} · ${reason}`);
     save({ immediate: true });
-    toast(`${mode === "exchange" ? "Exchange" : "Return"} completed · Inventory Updated ✓`);
+    toast("Exchange completed · Inventory Updated ✓");
     const done = UI.openModal({
       size: "sm",
       body: `<div class="success-view">
         <div class="success-check"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
-        <h2>${mode === "exchange" ? "Exchange" : "Return"} completed</h2>
-        <p class="muted">${diff < 0 ? `Refund ${money(-diff)} to the customer (${esc(method)}).` : diff > 0 ? `Collect ${money(diff)} from the customer (${esc(method)}).` : "Even exchange — nothing to pay."}</p>
+        <h2>Exchange completed</h2>
+        <p class="muted">${diff > 0 ? `Collect ${money(diff)} from the customer (${esc(method)}).` : "Even exchange — nothing to pay."}</p>
       </div>`,
       footer: `<button class="btn btn-soft" data-print type="button">${icon("printer", 18)} Print updated receipt</button><button class="btn btn-primary" data-close type="button">Done</button>`
     });
@@ -316,26 +324,24 @@ Views.returns = (() => {
     const recent = state.returns.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 15);
     box.innerHTML = recent.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Invoice</th><th>Type</th><th>Items</th><th>Reason</th><th class="right">Amount</th><th>By</th></tr></thead><tbody>
       ${recent.map(record => `<tr class="clickable" data-open-bill="${esc(record.billId)}"><td class="cell-sub">${fmtDateTime(record.date)}</td><td class="cell-main">${esc(record.billId)}</td><td><span class="badge ${record.type === "exchange" ? "info" : "warn"}">${record.type === "exchange" ? "Exchange" : "Return"}</span></td><td class="cell-sub">${esc((record.returned || []).map(item => `${item.name} x${item.qty}`).join(", "))}${record.replacement?.length ? ` → ${esc(record.replacement.map(item => `${item.name} ${item.size || ""} x${item.qty}`).join(", "))}` : ""}</td><td>${esc(record.reason || "")}</td><td class="right num cell-main">${record.netChange < 0 ? `-${money(-record.netChange)}` : record.netChange > 0 ? `+${money(record.netChange)}` : money(0)}</td><td>${esc(record.user || "")}</td></tr>`).join("")}
-    </tbody></table></div>` : UI.empty("returns", "No returns yet");
+    </tbody></table></div>` : UI.empty("returns", "No exchanges yet");
   }
 
   function render(container, params = {}) {
     root = container;
-    if (params.invoice && state.bills.some(bill => bill.id === params.invoice)) {
+    // Only start fresh when a different invoice is opened, so a re-render never wipes an exchange in progress.
+    if (params.invoice && params.invoice !== billId && state.bills.some(bill => bill.id === params.invoice)) {
       billId = params.invoice;
-      mode = params.mode === "exchange" ? "exchange" : "return";
       reset();
     }
     root.innerHTML = `
-      <div class="page-head"><div><h1>Returns & Exchanges</h1><p>Find the sale, pick items, choose Return or Exchange. Stock updates automatically.</p></div></div>
+      <div class="page-head"><div><h1>Exchanges</h1><p>Exchange only — no cash refunds. Find the sale, pick the items coming back and the new items going out. Stock updates automatically.</p></div></div>
       <div id="retBody"></div>
-      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Recent returns & exchanges</h3></div></div><div class="card-body" id="retRecent"></div></div>`;
+      <div class="card" style="margin-top:16px"><div class="card-head"><div><h3>Recent exchanges</h3></div></div><div class="card-body" id="retRecent"></div></div>`;
     root.addEventListener("click", event => {
       const pickBill = event.target.closest("[data-pick-bill]")?.dataset.pickBill;
       if (pickBill) return selectBill(pickBill);
       if (event.target.closest("[data-change-bill]")) { billId = ""; reset(); return draw(); }
-      const nextMode = event.target.closest("[data-mode]")?.dataset.mode;
-      if (nextMode) { mode = nextMode; if (mode === "return") replacements = []; return draw(); }
       const lineEl = event.target.closest("[data-line]");
       const bill = state.bills.find(item => item.id === billId);
       if (lineEl && bill) {
@@ -393,5 +399,10 @@ Views.returns = (() => {
     draw();
   }
 
-  return { render, handleBarcode };
+  // Data synced from another till: redraw in place, keeping the current selections.
+  function refresh() {
+    if (root && document.contains(root) && !UI.hasModal()) draw();
+  }
+
+  return { render, refresh, handleBarcode };
 })();

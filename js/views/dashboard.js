@@ -99,7 +99,7 @@ Views.dashboard = (() => {
         ${kpi("Total Products", products.length, { format: "num", iconName: "products", tone: "t-info", sub: `${num(sum(products, product => productStock(product)))} units in stock` })}
         ${kpi("Low Stock", low.length, { format: "num", iconName: "alert", tone: "t-warn", sub: "At or below alert level" })}
         ${kpi("Out of Stock", out.length, { format: "num", iconName: "inventory", tone: "t-bad", sub: "Needs restocking" })}
-        ${kpi("Returns", summary.returns, { format: "num", iconName: "returns", tone: "", sub: `${money(summary.refunds)} refunded today` })}
+        ${kpi("Exchanges", summary.returns, { format: "num", iconName: "returns", tone: "", sub: `${num(summary.returnedItems)} item(s) exchanged today` })}
         ${kpi("Cash Sales", summary.cash, { iconName: "cash", tone: "t-good", sub: "Collected in cash" })}
         ${kpi("Card / Bank Sales", summary.cardBank, { iconName: "card", tone: "t-info", sub: "Card, bank & wallets" })}
         ${kpi("Pending Payments", summary.pending, { iconName: "clock", tone: "t-warn", sub: `${summary.pendingCount} invoice(s) today` })}

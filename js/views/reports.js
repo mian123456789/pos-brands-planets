@@ -12,7 +12,7 @@ Views.reports = (() => {
     ["inventory", "Inventory", "inventory"],
     ["cashiers", "Cashier Performance", "staff"],
     ["promotions", "Promotions", "promotions"],
-    ["returns", "Returns", "returns"],
+    ["returns", "Exchanges", "returns"],
     ["payments", "Payment Methods", "card"]
   ];
 
@@ -163,7 +163,7 @@ Views.reports = (() => {
         map.set(record.user, entry);
       });
       const rows = [...map.values()].sort((a, b) => b.sales - a.sales);
-      exportRows = [["Cashier", "Orders", "Items", "Sales", "Average Order", "Promo Orders", "Returns Processed"], ...rows.map(row => [row.cashier, row.orders, row.items, Math.round(row.sales), Math.round(row.orders ? row.sales / row.orders : 0), row.promoOrders, row.returns])];
+      exportRows = [["Cashier", "Orders", "Items", "Sales", "Average Order", "Promo Orders", "Exchanges Processed"], ...rows.map(row => [row.cashier, row.orders, row.items, Math.round(row.sales), Math.round(row.orders ? row.sales / row.orders : 0), row.promoOrders, row.returns])];
       return {
         html: chartCard("rChart", "Sales by cashier", range.label) +
           tableCard("Cashier performance", table(["Cashier", ">Orders", ">Items", ">Sales", ">Avg order", ">Deal orders", ">Returns"], rows.map((row, index) => `<tr><td><div class="product-cell"><span class="rank ${index < 3 ? `r${index + 1}` : ""}">${index + 1}</span><span class="cell-main">${esc(row.cashier)}</span></div></td><td class="right">${row.orders}</td><td class="right">${row.items}</td><td class="right num cell-main">${money(row.sales)}</td><td class="right num">${money(row.orders ? row.sales / row.orders : 0)}</td><td class="right">${row.promoOrders}</td><td class="right">${row.returns}</td></tr>`))),
@@ -211,7 +211,7 @@ Views.reports = (() => {
       exportRows = [["Date", "Invoice", "Type", "Items Returned", "New Items", "Reason", "Refund/Collected", "User"], ...records.map(record => [recordDateKey(record.date), record.billId, record.type, sum(record.returned || [], item => item.qty), sum(record.replacement || [], item => item.qty), record.reason, record.netChange, record.user])];
       return {
         html: kpiRow([
-          kpi("Returns & exchanges", records.length, "num", "", "t-warn"),
+          kpi("Exchanges", records.length, "num", "", "t-warn"),
           kpi("Items returned", sum(records, record => sum(record.returned || [], item => item.qty)), "num"),
           kpi("Refunded", sum(records.filter(record => record.netChange < 0), record => -record.netChange), "money", "", "t-bad"),
           kpi("Collected on exchanges", sum(records.filter(record => record.netChange > 0), record => record.netChange), "money", "", "t-good")

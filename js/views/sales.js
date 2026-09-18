@@ -40,7 +40,7 @@ Views.sales = (() => {
       <td><div class="actions">
         <button class="icon-btn sm" data-act="view" title="View invoice" type="button">${icon("eye", 17)}</button>
         <button class="icon-btn sm" data-act="print" title="Print" type="button">${icon("printer", 17)}</button>
-        ${can("returns") && !isCancelled(bill) ? `<button class="icon-btn sm" data-act="return" title="Return / Exchange" type="button">${icon("returns", 17)}</button>` : ""}
+        ${can("returns") && !isCancelled(bill) ? `<button class="icon-btn sm" data-act="return" title="Exchange" type="button">${icon("returns", 17)}</button>` : ""}
       </div></td>
     </tr>`;
   }
@@ -137,7 +137,7 @@ Views.sales = (() => {
     const actions = [
       `<button class="btn btn-primary" data-inv="print" type="button">${icon("printer", 18)} Print</button>`,
       Receipt.whatsappPhone(bill.customerPhone) ? `<button class="btn btn-whatsapp" data-inv="wa" type="button">${icon("whatsapp", 18)} WhatsApp</button>` : "",
-      can("returns") && !isCancelled(bill) ? `<button class="btn btn-soft" data-inv="return" type="button">${icon("returns", 18)} Return / Exchange</button>` : "",
+      can("returns") && !isCancelled(bill) ? `<button class="btn btn-soft" data-inv="return" type="button">${icon("returns", 18)} Exchange</button>` : "",
       can("editSales") && !isCancelled(bill) ? `<button class="btn btn-soft" data-inv="edit" type="button">${icon("edit", 18)} ${billDue(bill) > 0 ? "Receive payment" : "Edit details"}</button>` : "",
       can("cancelSales") && !isCancelled(bill) ? `<button class="btn btn-soft" data-inv="cancel" type="button" style="color:var(--bad)">${icon("ban", 18)} Cancel sale</button>` : "",
       can("deleteSales") ? `<button class="btn btn-danger" data-inv="delete" type="button">${icon("trash", 18)} Delete</button>` : ""
@@ -157,7 +157,7 @@ Views.sales = (() => {
           </div>
           ${totals.promoDiscount ? `<div class="promo-banner" style="margin:0"><span class="pb-icon">🎁</span><div><strong>${esc((bill.promotions || []).map(promo => BPPromotions.promoLabel(promo)).join(", "))}</strong><small>Saved ${money(totals.promoDiscount)} · Free: ${esc((bill.promotions || []).flatMap(promo => promo.freeItems || []).map(item => item.name).join(", "))}</small></div></div>` : ""}
           ${isCancelled(bill) ? `<div class="form-error">Cancelled by ${esc(bill.cancelledBy || "")} on ${fmtDateTime(bill.cancelledAt)}${bill.cancelReason ? ` — ${esc(bill.cancelReason)}` : ""}</div>` : ""}
-          ${returns.length ? `<div class="card card-pad" style="box-shadow:none"><strong>Returns & exchanges</strong>${returns.map(record => `<div class="list-item"><div class="grow"><strong>${record.type === "exchange" ? "Exchange" : "Return"} · ${esc(record.reason || "")}</strong><small>${fmtDateTime(record.date)} · ${esc(record.user || "")}</small></div><span class="num cell-main">${record.netChange < 0 ? "Refund " : record.netChange > 0 ? "Collected " : ""}${money(Math.abs(record.netChange))}</span></div>`).join("")}</div>` : ""}
+          ${returns.length ? `<div class="card card-pad" style="box-shadow:none"><strong>Exchanges</strong>${returns.map(record => `<div class="list-item"><div class="grow"><strong>${record.type === "exchange" ? "Exchange" : "Return"} · ${esc(record.reason || "")}</strong><small>${fmtDateTime(record.date)} · ${esc(record.user || "")}</small></div><span class="num cell-main">${record.netChange < 0 ? "Refund " : record.netChange > 0 ? "Collected " : ""}${money(Math.abs(record.netChange))}</span></div>`).join("")}</div>` : ""}
           <div class="row wrap">${actions}</div>
         </div>
       </div>`

@@ -6,7 +6,7 @@ const Shell = (() => {
     { id: "pos", label: "New Sale / POS", icon: "pos", allowed: () => can("pos"), className: "pos-link" },
     { id: "sales", label: "Sales", icon: "sales", allowed: () => can("sales") },
     { id: "customers", label: "Customers", icon: "customers", allowed: () => can("customers") },
-    { id: "returns", label: "Returns / Exchanges", icon: "returns", allowed: () => can("returns") },
+    { id: "returns", label: "Exchanges", icon: "returns", allowed: () => can("returns") },
     { section: "Catalogue" },
     { id: "products", label: "Products", icon: "products", allowed: () => can("products") },
     { id: "inventory", label: "Inventory", icon: "inventory", allowed: () => can("inventory"), badge: () => stockAlerts().length || "" },
