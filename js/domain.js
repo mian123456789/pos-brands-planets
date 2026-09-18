@@ -1,12 +1,10 @@
 /* Business rules: bill totals, returns, customers, stock and sales analytics. */
 const PAYMENT_METHODS = [
   { id: "Cash", icon: "cash" },
-  { id: "Card", icon: "card" },
   { id: "Bank Transfer", icon: "bank" },
-  { id: "JazzCash", icon: "phone" },
-  { id: "Easypaisa", icon: "phone" },
   { id: "Split", icon: "split" }
 ];
+const PAYMENT_STATUSES = ["Paid", "Pending"];
 const DEPARTMENTS = [
   { value: "MEN'S", label: "Men" },
   { value: "WOMEN", label: "Women" },

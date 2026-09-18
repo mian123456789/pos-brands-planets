@@ -560,7 +560,7 @@ Views.pos = (() => {
     let method = "Cash";
     let payLater = false;
     let completing = false;
-    let splitRows = [{ method: "Cash", amount: "", ref: "" }, { method: "Card", amount: "", ref: "" }];
+    let splitRows = [{ method: "Cash", amount: "", ref: "" }, { method: "Bank Transfer", amount: "", ref: "" }];
     const roundUp = step => Math.ceil(total / step) * step;
     const quick = [...new Set([total, roundUp(500), roundUp(1000), roundUp(5000)])].slice(0, 4);
 
@@ -580,7 +580,10 @@ Views.pos = (() => {
             </div>
           </div>
           <div class="field"><label for="saleMode">Sale channel</label><select id="saleMode">${SALE_MODES.map(mode => `<option ${mode === saleMode(cart.saleMode) ? "selected" : ""}>${mode}</option>`).join("")}</select></div>
-          <label class="check ${customer ? "" : "faint"}" title="${customer ? "" : "Attach a customer to allow pay later"}"><input type="checkbox" id="payLater" ${customer ? "" : "disabled"}> Pay later / partial payment${customer ? "" : " (needs a customer)"}</label>
+          <div class="field"><label>Payment status</label>
+            <div class="segmented" id="payStatus" style="width:100%">${PAYMENT_STATUSES.map(status => `<button class="${status === "Paid" ? "active" : ""}" data-status="${status}" type="button" style="flex:1;min-height:44px" ${status === "Pending" && !customer ? "disabled title='Attach a customer (F6) to mark a sale as pending'" : ""}>${status === "Paid" ? icon("check", 16) : icon("clock", 16)} ${status}</button>`).join("")}</div>
+            <span class="hint">${customer ? "Pending = customer pays the rest later (partial payment allowed)." : "Attach a customer to mark a sale as Pending."}</span>
+          </div>
         </div>
         <div class="stack">
           <div class="pay-methods" id="payMethods">${PAYMENT_METHODS.map(item => `<button class="pay-method ${item.id === method ? "active" : ""}" data-method="${esc(item.id)}" type="button">${icon(item.icon, 24)}<span>${esc(item.id)}</span></button>`).join("")}</div>
@@ -614,7 +617,7 @@ Views.pos = (() => {
         const cash = sum(rows.filter(row => row.method === "Cash"), row => row.amount);
         const nonCash = sum(rows.filter(row => row.method !== "Cash"), row => row.amount);
         const paid = cash + nonCash;
-        if (nonCash > total) return { valid: false, message: "Card / bank / wallet amounts can't be more than the bill.", payments: [], change: 0, due: 0, received: paid };
+        if (nonCash > total) return { valid: false, message: "The bank transfer amount can't be more than the bill.", payments: [], change: 0, due: 0, received: paid };
         const change = Math.max(0, paid - total);
         if (!payLater && paid < total) return { valid: false, message: `${money(total - paid)} still to collect.`, payments: [], change: 0, due: total - paid, received: paid };
         if (rows.length < 1) return { valid: payLater, message: "Enter the split amounts.", payments: [], change: 0, due: total, received: 0 };
@@ -708,7 +711,7 @@ Views.pos = (() => {
       } else {
         panel.innerHTML = `<div class="summary-box"><div class="sum-row"><span>Charge to ${esc(method)}</span><strong class="big-amount">${money(total)}</strong></div></div>
           ${payLater ? `<div class="field"><label for="paidNow">Amount paid now</label><input id="paidNow" type="number" inputmode="decimal" min="0" value="0"></div><div class="change-box" id="changeBox"></div>` : ""}
-          <div class="field"><label for="payRef">${method === "Card" ? "Card slip / approval no." : "Transaction ID / reference"} <span class="faint">(optional)</span></label><input id="payRef" autocomplete="off" placeholder="e.g. last 4 digits or TID"></div>`;
+          <div class="field"><label for="payRef">Bank reference / transaction ID <span class="faint">(optional)</span></label><input id="payRef" autocomplete="off" placeholder="e.g. TID or sender name"></div>`;
         panel.querySelector("#paidNow")?.addEventListener("input", updateState);
         setTimeout(() => panel.querySelector("#payRef")?.focus(), 40);
       }
@@ -721,8 +724,11 @@ Views.pos = (() => {
       method = selected;
       renderPanel();
     });
-    el.querySelector("#payLater")?.addEventListener("change", event => {
-      payLater = event.target.checked;
+    el.querySelector("#payStatus").addEventListener("click", event => {
+      const status = event.target.closest("[data-status]:not([disabled])")?.dataset.status;
+      if (!status) return;
+      payLater = status === "Pending";
+      el.querySelectorAll("#payStatus button").forEach(button => button.classList.toggle("active", button.dataset.status === status));
       renderPanel();
     });
     el.querySelector("#saleMode").addEventListener("change", event => {
