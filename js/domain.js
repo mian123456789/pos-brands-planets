@@ -16,7 +16,9 @@ const PRODUCT_TYPES = ["T-Shirts", "Shirts", "Polo Shirts", "Jeans", "Trousers",
 const SEASONS = ["Summer", "Winter", "All Season"];
 const COLOR_SUGGESTIONS = ["Black", "White", "Navy", "Grey", "Blue", "Sky Blue", "Red", "Maroon", "Green", "Olive", "Beige", "Brown", "Khaki", "Pink", "Yellow", "Mustard", "Purple"];
 const RETURN_REASONS = ["Wrong Size", "Damaged", "Customer Changed Mind", "Wrong Product", "Other"];
-const SALE_MODES = ["In Store", "Online Store", "Exchange Item"];
+// Exchanges are handled on the Exchanges screen, so a sale is either in store or online.
+const SALE_MODES = ["In Store", "Online Store"];
+const saleMode = mode => SALE_MODES.includes(mode) ? mode : "In Store";
 
 const deptLabel = value => DEPARTMENTS.find(dept => dept.value === value)?.label || value || "";
 const lineKey = (item, index) => item.key || `i${index}`;

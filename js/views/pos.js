@@ -579,7 +579,7 @@ Views.pos = (() => {
               <div><span>Customer</span><span>${esc(customer?.name || "Walk-in")}</span></div>
             </div>
           </div>
-          <div class="field"><label for="saleMode">Sale channel</label><select id="saleMode">${SALE_MODES.map(mode => `<option ${mode === cart.saleMode ? "selected" : ""}>${mode}</option>`).join("")}</select></div>
+          <div class="field"><label for="saleMode">Sale channel</label><select id="saleMode">${SALE_MODES.map(mode => `<option ${mode === saleMode(cart.saleMode) ? "selected" : ""}>${mode}</option>`).join("")}</select></div>
           <label class="check ${customer ? "" : "faint"}" title="${customer ? "" : "Attach a customer to allow pay later"}"><input type="checkbox" id="payLater" ${customer ? "" : "disabled"}> Pay later / partial payment${customer ? "" : " (needs a customer)"}</label>
         </div>
         <div class="stack">
@@ -752,7 +752,7 @@ Views.pos = (() => {
         customerName: customer?.name || "Walk-in Customer",
         customerPhone: customer?.phone || "",
         walkIn: !customer,
-        saleMode: cart.saleMode || "In Store",
+        saleMode: saleMode(cart.saleMode),
         items: fresh.lines.map(line => ({
           key: line.key,
           id: line.productId,

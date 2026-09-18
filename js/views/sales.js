@@ -244,7 +244,7 @@ Views.sales = (() => {
       body: `<form id="saleEdit" class="form-grid">
         <div class="field"><label>Customer name</label><input id="seName" value="${esc(bill.customerName || "")}"></div>
         <div class="field"><label>Phone</label><input id="sePhone" value="${esc(bill.customerPhone || "")}" inputmode="tel"></div>
-        <div class="field"><label>Sale channel</label><select id="seMode">${SALE_MODES.map(mode => `<option ${bill.saleMode === mode ? "selected" : ""}>${mode}</option>`).join("")}</select></div>
+        <div class="field"><label>Sale channel</label><select id="seMode">${[...SALE_MODES, ...(bill.saleMode && !SALE_MODES.includes(bill.saleMode) ? [bill.saleMode] : [])].map(mode => `<option ${bill.saleMode === mode ? "selected" : ""}>${mode}</option>`).join("")}</select></div>
         ${due > 0 ? `<div class="field"><label>Payment method</label><select id="seMethod">${PAYMENT_METHODS.filter(item => item.id !== "Split").map(item => `<option>${item.id}</option>`).join("")}</select></div>
           <div class="field"><label>Amount received now</label><input id="seAmount" type="number" min="0" max="${due}" value="${due}"></div>
           <div class="field"><label>Reference</label><input id="seRef" placeholder="Optional"></div>` : ""}
