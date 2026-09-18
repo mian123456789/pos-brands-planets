@@ -82,7 +82,10 @@ const Shell = (() => {
       else localStorage.removeItem(LS.rememberUser);
       password.value = "";
       showApp();
-      toast(result.offline ? "Signed in offline — sales will sync when the connection is back." : `Welcome, ${currentUser().name || currentUser().username} ✓`, result.offline ? "warn" : "success");
+      const resuming = Attendance.resumingAfterAutoLogout();
+      toast(result.offline ? "Signed in offline — sales will sync when the connection is back."
+        : resuming ? `Welcome back, ${currentUser().name || currentUser().username} — continuing your shift ✓`
+        : `Welcome, ${currentUser().name || currentUser().username} ✓`, result.offline ? "warn" : "success");
     });
 
     // Subtle 3D parallax on pointer devices only.
@@ -432,8 +435,11 @@ const Shell = (() => {
     });
     if (ok) finishLogout();
   }
-  async function finishLogout(reason = "") {
-    if (Views.pos.hasItems()) Views.pos.autoHold(reason ? "Auto-held after inactivity" : "Held at logout");
+  async function finishLogout(reason = "", automatic = false) {
+    // Automatic logout keeps the shift open (no attendance on re-login); a manual logout ends it.
+    if (automatic) Attendance.rememberAutoLogout();
+    else Attendance.clearAutoLogout();
+    if (Views.pos.hasItems()) Views.pos.autoHold(automatic ? "Auto-held after inactivity" : "Held at logout");
     if (Sync.saveTimer) {
       clearTimeout(Sync.saveTimer);
       Sync.saveTimer = null;
@@ -579,7 +585,7 @@ const Shell = (() => {
     if (idleMs >= limit) {
       idleWarning?.close();
       idleWarning = null;
-      finishLogout("Signed out after inactivity. Any open cart was held.");
+      finishLogout("Signed out after inactivity. Sign in to continue your shift — any open cart was held (F9 to resume).", true);
     } else if (idleMs >= limit - 60000 && !idleWarning) {
       idleWarning = UI.openModal({
         title: "Still there?",

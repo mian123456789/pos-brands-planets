@@ -14,8 +14,25 @@ const Attendance = (() => {
   function openRecordsToday() {
     return state.attendance.filter(record => record.date === today() && !record.outTime && ["Present", "Late"].includes(record.status || "Present"));
   }
+  // A cashier signed out automatically (inactivity) is mid-shift: don't ask for attendance again today.
+  const AUTO_LOGOUT_KEY = "bp-auto-logout";
+  function rememberAutoLogout() {
+    const user = currentUser();
+    if (user) UI.safeSet(AUTO_LOGOUT_KEY, JSON.stringify({ username: user.username, date: todayKey() }));
+  }
+  function clearAutoLogout() {
+    try { localStorage.removeItem(AUTO_LOGOUT_KEY); } catch { /* private mode */ }
+  }
+  function resumingAfterAutoLogout() {
+    try {
+      const flag = JSON.parse(UI.safeGet(AUTO_LOGOUT_KEY) || "null");
+      return Boolean(flag && flag.date === todayKey() && flag.username === currentUser()?.username);
+    } catch {
+      return false;
+    }
+  }
   function required() {
-    return isCashier() && !isTodayClosed() && !hasWorkAttendanceToday(currentUser().username);
+    return isCashier() && !isTodayClosed() && !resumingAfterAutoLogout() && !hasWorkAttendanceToday(currentUser().username);
   }
   function blocksLogout() {
     return isCashier() && openRecordsToday().length > 0;
@@ -64,7 +81,7 @@ const Attendance = (() => {
       onDone();
     });
   }
-  return { required, blocksLogout, logoutPrompt, openRecordsToday, staffOptions, matchesStaff, completeRecords, hasWorkAttendanceToday, isTodayClosed };
+  return { required, rememberAutoLogout, clearAutoLogout, resumingAfterAutoLogout, blocksLogout, logoutPrompt, openRecordsToday, staffOptions, matchesStaff, completeRecords, hasWorkAttendanceToday, isTodayClosed };
 })();
 
 Views.attendance = (() => {
