@@ -26,7 +26,7 @@ Views.pos = (() => {
 
   function loadCart() {
     const saved = (() => { try { return JSON.parse(localStorage.getItem(CART_KEY) || "null"); } catch { return null; } })();
-    return { lines: [], customer: null, saleMode: "In Store", ...(saved || {}) };
+    return { lines: [], customer: null, saleMode: "In Store", useDeal: false, billDiscount: 0, ...(saved || {}) };
   }
   function persistCart() {
     UI.safeSet(CART_KEY, JSON.stringify(cart));
@@ -94,7 +94,9 @@ Views.pos = (() => {
         <div class="p-name">${esc(product.name)}</div>
         <div class="p-meta">${esc([product.sku, deptLabel(product.category), product.type].filter(Boolean).join(" · "))}</div>
         ${sizes.length || colors.length ? `<div class="p-variants">${esc([sizes.join(" "), colors.join(", ")].filter(Boolean).join(" · "))}</div>` : ""}
-        <div class="p-price">${money(product.price)}</div>
+        ${Number(product.discount) > 0
+          ? `<div class="p-price">${money(product.price * (1 - clamp(Number(product.discount), 0, 100) / 100))} <s class="faint" style="font-size:12px;font-weight:600">${money(product.price)}</s> <span class="badge accent">-${num(product.discount)}%</span></div>`
+          : `<div class="p-price">${money(product.price)}</div>`}
       </div>
     </button>`;
   }
@@ -144,14 +146,38 @@ Views.pos = (() => {
       category: product.category || "",
       type: product.type || "",
       season: product.season || "",
+      discount: clamp(Number(product.discount || 0), 0, 100),
       stock: variantStock(product.id, variant.id)
     };
   }
+  /*
+   * A sale is priced EITHER with the promotion deal (when the cashier applies
+   * it) OR with discount % (product discount + bill discount) — never both.
+   */
   function cartPricing() {
     cart.lines = cart.lines.filter(line => productById(line.productId));
     const lines = cart.lines.map(enrich).filter(Boolean);
-    const result = BPPromotions.applyPromotions(lines, state.promotions, { outletId: currentOutlet().id });
-    return { lines, result };
+    const deal = BPPromotions.applyPromotions(lines, state.promotions, { outletId: currentOutlet().id });
+    if (cart.useDeal) {
+      return { lines, result: { ...deal, mode: "deal", itemDiscount: 0, billLevelDiscount: 0, billPercent: 0, available: deal.applied, availableSaving: deal.discount } };
+    }
+    const priced = discountPricing(lines, cart.billDiscount);
+    return { lines, result: { ...priced, mode: "discount", applied: [], lineFree: {}, hints: deal.hints, available: deal.applied, availableSaving: deal.discount } };
+  }
+  function setDeal(on) {
+    cart.useDeal = on;
+    if (on) cart.billDiscount = 0;
+    persistCart();
+    renderCart();
+    if (!on) toast("Deal removed — discounts are back on", "info");
+  }
+  function setBillDiscount(value) {
+    if (!can("billDiscount")) return toast("You don't have permission to give a bill discount.", "error");
+    const pct = clamp(Math.round(Number(value || 0) * 100) / 100, 0, 100);
+    cart.billDiscount = pct;
+    persistCart();
+    renderCart();
+    if (pct) toast(`Bill discount ${pct}% applied ✓`, "success", 1400);
   }
 
   function customerHtml() {
@@ -176,18 +202,19 @@ Views.pos = (() => {
       </div>`;
   }
 
-  function lineHtml(line, freeQty) {
+  function lineHtml(line, freeQty, useDiscount) {
     const sizes = [...new Set(line.product.variants.map(variant => variant.size).filter(Boolean))];
     const colors = [...new Set(line.product.variants.filter(variant => !line.size || variant.size === line.size).map(variant => variant.color).filter(Boolean))];
     const gross = line.price * line.qty;
-    const net = line.price * (line.qty - freeQty);
+    const pct = useDiscount ? line.discount : 0;
+    const net = line.price * (line.qty - freeQty) * (1 - pct / 100);
     return `<div class="cart-line ${freeQty ? "has-free" : ""}" data-key="${esc(line.key)}">
       ${line.product.image ? `<img class="thumb cl-thumb" src="${line.product.image}" alt="">` : `<div class="thumb cl-thumb">${esc(initials(line.name))}</div>`}
       <div class="cl-info">
         <div class="cl-name">${esc(line.name)}</div>
         <div class="cl-sub">${money(line.price)} each · ${num(line.stock)} left${line.sku ? ` · ${esc(line.sku)}` : ""}</div>
       </div>
-      <div class="cl-total">${freeQty ? `<s>${money(gross)}</s>` : ""}${money(net)}${freeQty ? `<div><span class="free-tag">FREE x${freeQty}</span></div>` : ""}</div>
+      <div class="cl-total">${freeQty || pct ? `<s>${money(gross)}</s>` : ""}${money(net)}${freeQty ? `<div><span class="free-tag">FREE x${freeQty}</span></div>` : ""}${pct ? `<div><span class="free-tag">-${num(pct)}%</span></div>` : ""}</div>
       <div class="cl-controls">
         <div class="cl-variants">
           ${sizes.length ? `<select data-field="size" aria-label="Size">${sizes.map(size => `<option ${size === line.size ? "selected" : ""}>${esc(size)}</option>`).join("")}</select>` : ""}
@@ -206,24 +233,30 @@ Views.pos = (() => {
   }
 
   function promoBannerHtml(result) {
-    const unlocked = result.applied.length > 0;
     const hint = result.hints.find(item => item.kind === "moreItems");
     const minHint = result.hints.find(item => item.kind === "minPurchase");
-    let html = "";
-    if (unlocked) {
-      const promo = result.applied[0];
-      html += `<div class="promo-banner unlocked" id="promoBanner">
-        <span class="pb-icon">🎉</span>
-        <div><strong>DEAL UNLOCKED</strong><small>${esc(result.applied.map(item => `${BPPromotions.promoLabel(item)} applied`).join(" · "))} — you save ${money(result.discount)}</small></div>
-      </div>`;
-      if (hint) html += `<div class="promo-banner"><span class="pb-icon">🎁</span><div><small>Add ${hint.needed} more eligible item${hint.needed > 1 ? "s" : ""} to unlock another FREE product.</small></div></div>`;
-      void promo;
-    } else if (hint) {
-      html = `<div class="promo-banner" id="promoBanner"><span class="pb-icon">🎁</span><div><strong>${esc(hint.name || "Promotion")}</strong><small>Add ${hint.needed} more eligible item${hint.needed > 1 ? "s" : ""} to unlock your FREE product.</small></div></div>`;
-    } else if (minHint) {
-      html = `<div class="promo-banner" id="promoBanner"><span class="pb-icon">🎁</span><div><strong>${esc(minHint.name || "Promotion")}</strong><small>Spend ${money(minHint.needed)} more to unlock this deal.</small></div></div>`;
+    const hasDiscounts = result.mode === "discount" && result.discount > 0;
+    const hintHtml = (strong = "") => hint
+      ? `<div class="promo-banner"><span class="pb-icon">🎁</span><div>${strong ? `<strong>${esc(strong)}</strong>` : ""}<small>Add ${hint.needed} more eligible item${hint.needed > 1 ? "s" : ""} to unlock ${result.applied.length || result.available.length ? "another" : "your"} FREE product.</small></div></div>`
+      : minHint ? `<div class="promo-banner"><span class="pb-icon">🎁</span><div><strong>${esc(minHint.name || "Promotion")}</strong><small>Spend ${money(minHint.needed)} more to unlock this deal.</small></div></div>` : "";
+    if (result.mode === "deal") {
+      if (result.applied.length) {
+        return `<div class="promo-banner unlocked" id="promoBanner">
+          <span class="pb-icon">🎉</span>
+          <div class="grow"><strong>DEAL UNLOCKED</strong><small>${esc(result.applied.map(item => `${BPPromotions.promoLabel(item)} applied`).join(" · "))} — you save ${money(result.discount)} · discounts off</small></div>
+          <button class="btn btn-sm" data-pos="deal-off" type="button" style="background:rgba(255,255,255,.2);color:#fff;border-color:rgba(255,255,255,.35);box-shadow:none">Remove deal</button>
+        </div>` + hintHtml();
+      }
+      return `<div class="promo-banner" id="promoBanner"><span class="pb-icon">🎁</span><div class="grow"><strong>Deal selected</strong><small>${hint ? `Add ${hint.needed} more eligible item${hint.needed > 1 ? "s" : ""} to unlock the FREE product.` : "No eligible items yet."} Discounts are off while the deal is selected.</small></div><button class="btn btn-soft btn-sm" data-pos="deal-off" type="button">Remove deal</button></div>`;
     }
-    return html;
+    if (result.available.length) {
+      return `<div class="promo-banner" id="promoBanner">
+        <span class="pb-icon">🎁</span>
+        <div class="grow"><strong>${esc(result.available.map(item => BPPromotions.promoLabel(item)).join(" · "))} available</strong><small>Customer saves ${money(result.availableSaving)}${hasDiscounts ? ` instead of ${money(result.discount)} discount — applying the deal removes the discounts` : ""}.</small></div>
+        <button class="btn btn-accent btn-sm" data-pos="deal-on" type="button">Apply deal</button>
+      </div>`;
+    }
+    return hintHtml(hint?.name || "Promotion");
   }
 
   function renderCart() {
@@ -234,13 +267,17 @@ Views.pos = (() => {
     bindCustomerSearch();
     root.querySelector("#posCount").textContent = count;
     root.querySelector("#posLines").innerHTML = lines.length
-      ? lines.map(line => lineHtml(line, result.lineFree[line.key] || 0)).join("")
+      ? lines.map(line => lineHtml(line, result.lineFree[line.key] || 0, result.mode === "discount")).join("")
       : `<div class="cart-empty">${icon("barcode", 40)}<strong>Scan or tap a product</strong><span>Items you add appear here.</span></div>`;
     root.querySelector("#posPromo").innerHTML = promoBannerHtml(result);
     const held = state.heldSales.length;
     root.querySelector("#posSummary").innerHTML = `
       <div class="sum-row"><span>Subtotal (${count} item${count === 1 ? "" : "s"})</span><strong>${money(result.subtotal)}</strong></div>
       ${result.applied.map(promo => `<div class="sum-row promo"><span>🎁 ${esc(BPPromotions.promoLabel(promo))}${promo.name ? ` · ${esc(promo.name)}` : ""}</span><strong>-${money(promo.saving)}</strong></div>`).join("")}
+      ${result.mode === "discount" && result.itemDiscount ? `<div class="sum-row promo"><span>Product discounts</span><strong>-${money(result.itemDiscount)}</strong></div>` : ""}
+      ${result.mode === "discount" && can("billDiscount") ? `<div class="sum-row" style="align-items:center"><span>Bill discount %</span>
+        <span class="row" style="gap:6px">${result.billLevelDiscount ? `<strong style="color:var(--accent-text)">-${money(result.billLevelDiscount)}</strong>` : ""}<input id="billDiscount" class="input" type="number" min="0" max="100" step="0.5" inputmode="decimal" value="${cart.billDiscount || ""}" placeholder="0" style="width:84px;min-height:38px;text-align:right" ${lines.length ? "" : "disabled"} aria-label="Bill discount percent"></span></div>`
+        : result.mode === "discount" && result.billLevelDiscount ? `<div class="sum-row promo"><span>Bill discount ${num(result.billPercent)}%</span><strong>-${money(result.billLevelDiscount)}</strong></div>` : ""}
       <div class="sum-row total"><span>Final Total</span><strong id="posTotal">${money(result.total)}</strong></div>
       <div class="cart-actions">
         <button class="btn btn-soft" data-pos="hold" type="button" ${lines.length ? "" : "disabled"}>${icon("pause", 16)} Hold <kbd>F8</kbd></button>
@@ -253,6 +290,13 @@ Views.pos = (() => {
     const bar = root.querySelector("#posMobileBar");
     bar.innerHTML = `<span>${icon("pos", 20)} ${count} item${count === 1 ? "" : "s"} · ${money(result.total)}</span><span class="btn btn-accent">View cart</span>`;
     bar.classList.toggle("hidden", !count);
+    const discountInput = root.querySelector("#billDiscount");
+    if (discountInput) {
+      discountInput.addEventListener("change", () => setBillDiscount(discountInput.value));
+      discountInput.addEventListener("keydown", event => {
+        if (event.key === "Enter") { event.preventDefault(); discountInput.blur(); }
+      });
+    }
 
     const freeCount = result.applied.reduce((total, promo) => total + promo.freeCount, 0);
     if (freeCount > lastFreeCount) {
@@ -350,7 +394,7 @@ Views.pos = (() => {
   }
 
   function resetCart() {
-    cart = { lines: [], customer: null, saleMode: "In Store" };
+    cart = { lines: [], customer: null, saleMode: "In Store", useDeal: false, billDiscount: 0 };
     lastFreeCount = 0;
     persistCart();
   }
@@ -468,6 +512,8 @@ Views.pos = (() => {
       outletId: currentOutlet().id,
       customer: cart.customer,
       saleMode: cart.saleMode,
+      useDeal: Boolean(cart.useDeal),
+      billDiscount: Number(cart.billDiscount || 0),
       lines: cart.lines,
       itemCount: itemCount(),
       total: result.total,
@@ -526,7 +572,7 @@ Views.pos = (() => {
       toast("Current sale held so you can resume the other one.", "info");
     }
     const lines = (held.lines || []).filter(line => productById(line.productId));
-    cart = { lines, customer: held.customer || null, saleMode: held.saleMode || "In Store" };
+    cart = { lines, customer: held.customer || null, saleMode: held.saleMode || "In Store", useDeal: Boolean(held.useDeal), billDiscount: Number(held.billDiscount || 0) };
     markDeleted("heldSales", id);
     state.heldSales = state.heldSales.filter(item => item.id !== id);
     save();
@@ -576,6 +622,8 @@ Views.pos = (() => {
             <div class="due-lines">
               <div><span>Subtotal</span><span>${money(result.subtotal)}</span></div>
               ${result.applied.map(promo => `<div class="promo"><span>🎁 ${esc(BPPromotions.promoLabel(promo))}</span><span>-${money(promo.saving)}</span></div>`).join("")}
+              ${result.mode === "discount" && result.itemDiscount ? `<div class="promo"><span>Product discounts</span><span>-${money(result.itemDiscount)}</span></div>` : ""}
+              ${result.mode === "discount" && result.billLevelDiscount ? `<div class="promo"><span>Bill discount ${num(result.billPercent)}%</span><span>-${money(result.billLevelDiscount)}</span></div>` : ""}
               <div><span>Customer</span><span>${esc(customer?.name || "Walk-in")}</span></div>
             </div>
           </div>
@@ -745,6 +793,7 @@ Views.pos = (() => {
       completing = true;
       el.querySelector("#completeSale").disabled = true;
       const fresh = cartPricing();
+      const dealMode = fresh.result.mode === "deal";
       const promos = BPPromotions.livePromotions(state.promotions, { outletId: currentOutlet().id });
       const bill = {
         id: nextInvoiceId(),
@@ -774,14 +823,16 @@ Views.pos = (() => {
           price: line.price,
           qty: line.qty,
           freeQty: fresh.result.lineFree[line.key] || 0,
-          discount: 0,
+          discount: dealMode ? 0 : line.discount,
           ...(line.product.costPrice !== undefined ? { cost: Number(line.product.costPrice || 0) } : {})
         })),
         subtotal: fresh.result.subtotal,
-        promoDiscount: fresh.result.discount,
+        dealApplied: dealMode,
+        promoDiscount: dealMode ? fresh.result.discount : 0,
+        billDiscountPercent: dealMode ? 0 : fresh.result.billPercent,
         total: fresh.result.total,
         promotions: fresh.result.applied,
-        promoSnapshot: promos.map(promo => ({ ...promo })),
+        promoSnapshot: dealMode ? promos.map(promo => ({ ...promo })) : [],
         paymentMethod: method,
         payments: calc.payments,
         received: calc.received,
@@ -792,7 +843,7 @@ Views.pos = (() => {
       };
       bill.items.forEach(item => addStockMove({ productId: item.id, variantId: item.variantId, qty: -item.qty, type: "sale", ref: bill.id }));
       state.bills.push(bill);
-      audit("sale.create", "bill", bill.id, `Sale ${bill.id} · ${money(bill.total)} · ${billItemCount(bill)} item(s) · ${billPaymentLabel(bill)}${bill.promoDiscount ? ` · promo -${money(bill.promoDiscount)}` : ""}`);
+      audit("sale.create", "bill", bill.id, `Sale ${bill.id} · ${money(bill.total)} · ${billItemCount(bill)} item(s) · ${billPaymentLabel(bill)}${bill.promoDiscount ? ` · promo -${money(bill.promoDiscount)}` : ""}${billTotals(bill).itemDiscount ? ` · product discount -${money(billTotals(bill).itemDiscount)}` : ""}${bill.billDiscountPercent ? ` · bill discount ${bill.billDiscountPercent}% (-${money(billTotals(bill).billLevelDiscount)})` : ""}`);
       save();
       resetCart();
       rerender();
@@ -820,7 +871,7 @@ Views.pos = (() => {
       <p class="muted">Sale Completed ✓ · Invoice <strong>${esc(bill.id)}</strong> · ${money(bill.total)}</p>
       ${bill.change > 0 ? `<div class="change-box" style="width:100%"><span>Change to return</span><strong>${money(bill.change)}</strong></div>` : ""}
       ${billDue(bill) > 0 ? `<div class="change-box short" style="width:100%"><span>Balance due (pay later)</span><strong>${money(billDue(bill))}</strong></div>` : ""}
-      ${bill.promoDiscount ? `<div class="badge accent" style="font-size:13px;padding:6px 12px">🎁 Customer saved ${money(bill.promoDiscount)}</div>` : ""}
+      ${billTotals(bill).discount ? `<div class="badge accent" style="font-size:13px;padding:6px 12px">🎁 Customer saved ${money(billTotals(bill).discount)}</div>` : ""}
       <div class="success-actions">
         <button class="btn btn-primary" data-s="print" type="button">${icon("printer", 22)} Print receipt <kbd>P</kbd></button>
         <button class="btn btn-whatsapp" data-s="wa" type="button" ${canWhatsApp ? "" : "disabled"}>${icon("whatsapp", 22)} WhatsApp</button>
@@ -989,6 +1040,8 @@ Views.pos = (() => {
       if (action === "clear") clearCart();
       if (action === "checkout") { toggleSheet(false); checkout(); }
       if (action === "sheet-close") toggleSheet(false);
+      if (action === "deal-on") setDeal(true);
+      if (action === "deal-off") setDeal(false);
     });
     root.querySelector("#posMobileBar").addEventListener("click", () => toggleSheet(true));
 

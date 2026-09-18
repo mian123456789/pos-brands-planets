@@ -72,7 +72,7 @@ Views.promotions = (() => {
     });
     root.innerHTML = `
       <div class="page-head">
-        <div><h1>Promotions & Deals</h1><p>Deals apply automatically at checkout — cashiers can't add manual discounts.</p></div>
+        <div><h1>Promotions & Deals</h1><p>At checkout the cashier chooses: apply the deal (discounts are removed) or keep discount %. Never both.</p></div>
         <div class="page-actions">${can("promotions") ? `<button class="btn btn-accent btn-lg" id="promoAdd" type="button">${icon("plus", 18)} Create promotion</button>` : `<span class="badge">${icon("lock", 12)} View only</span>`}</div>
       </div>
       ${promos.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))">${promos.map(card).join("")}</div>`

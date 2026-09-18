@@ -27,8 +27,12 @@ function billTotals(bill) {
   const items = Array.isArray(bill.items) ? bill.items : [];
   const subtotal = items.reduce((total, item) => total + Number(item.price || 0) * Number(item.qty || 0), 0);
   if (bill.v === 2) {
+    // A sale has either a promotion deal or discount % (product + bill), never both.
     const promoDiscount = Math.min(subtotal, Number(bill.promoDiscount || 0));
-    return { subtotal, itemDiscount: 0, billLevelDiscount: 0, promoDiscount, discount: promoDiscount, total: subtotal - promoDiscount };
+    const itemDiscount = items.reduce((total, item) => total + Number(item.price || 0) * Number(item.qty || 0) * clamp(Number(item.discount || 0), 0, 100) / 100, 0);
+    const billLevelDiscount = Math.max(0, subtotal - itemDiscount) * clamp(Number(bill.billDiscountPercent || 0), 0, 100) / 100;
+    const discount = Math.min(subtotal, promoDiscount + itemDiscount + billLevelDiscount);
+    return { subtotal, itemDiscount, billLevelDiscount, promoDiscount, discount, total: Math.round(subtotal - discount) };
   }
   // Pre-redesign bills keep their original discount maths.
   const itemDiscount = items.reduce((total, item) => total + Number(item.price || 0) * Number(item.qty || 0) * Number(item.discount || 0) / 100, 0);
@@ -102,13 +106,26 @@ function billItemCount(bill) {
 /* Net revenue for one line (promo / legacy discounts spread onto the line). */
 function lineNet(bill, item) {
   const gross = Number(item.price || 0) * Number(item.qty || 0);
-  if (bill.v === 2) return Number(item.price || 0) * Math.max(0, Number(item.qty || 0) - Number(item.freeQty || 0));
+  if (bill.v === 2 && billTotals(bill).promoDiscount) return Number(item.price || 0) * Math.max(0, Number(item.qty || 0) - Number(item.freeQty || 0));
   const afterItem = gross * (1 - clamp(Number(item.discount || 0), 0, 100) / 100);
   const totals = billTotals(bill);
   const beforeBillDiscount = totals.subtotal - totals.itemDiscount;
   const factor = beforeBillDiscount > 0 ? (beforeBillDiscount - totals.billLevelDiscount) / beforeBillDiscount : 1;
   return afterItem * factor;
 }
+/**
+ * Cart pricing without a deal: product discount % per line, then the bill
+ * discount % on what remains.
+ */
+function discountPricing(lines, billPercent) {
+  const subtotal = sum(lines, line => line.price * line.qty);
+  const itemDiscount = sum(lines, line => line.price * line.qty * clamp(Number(line.discount || 0), 0, 100) / 100);
+  const pct = clamp(Number(billPercent || 0), 0, 100);
+  const billLevelDiscount = Math.max(0, subtotal - itemDiscount) * pct / 100;
+  const total = Math.round(Math.max(0, subtotal - itemDiscount - billLevelDiscount));
+  return { subtotal, itemDiscount, billLevelDiscount, billPercent: pct, discount: subtotal - total, total };
+}
+
 function lineCost(item) {
   const cost = item.cost ?? productById(item.id)?.costPrice ?? 0;
   return Number(cost || 0) * Number(item.qty || 0);
@@ -131,7 +148,8 @@ function currentLines(bill) {
 }
 /** Price a set of lines the same way the original invoice was priced. */
 function priceLines(bill, lines) {
-  if (bill.v === 2) {
+  // Deal sales reprice with the deal; discount sales keep their discount %.
+  if (bill.v === 2 && bill.dealApplied !== false) {
     const result = BPPromotions.applyPromotions(
       lines.filter(line => line.qty > 0).map(line => ({ ...line, productId: line.id })),
       bill.promoSnapshot || [],

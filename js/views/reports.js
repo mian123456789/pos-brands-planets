@@ -83,7 +83,7 @@ Views.reports = (() => {
         html: kpiRow([
           kpi("Net sales", s.net, "money", `${s.orders} orders`, "t-accent"),
           kpi("Gross sales", s.gross),
-          kpi("Promotion discounts", s.promo, "money", s.legacyDiscount ? `+ ${money(s.legacyDiscount)} old manual discounts` : ""),
+          kpi("Promotion discounts", s.promo, "money", s.legacyDiscount ? `+ ${money(s.legacyDiscount)} discount %` : ""),
           kpi("Refunds", s.refunds, "money", `${s.returns} returns`, "t-bad"),
           kpi("Average order", s.orders ? s.sales / s.orders : 0),
           kpi("Items sold", s.items, "num")

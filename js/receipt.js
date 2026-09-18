@@ -32,7 +32,7 @@ const Receipt = (() => {
         <div class="r-item-top"><span>${esc(item.name)}</span><span>${money(lineTotal)}</span></div>
         <div class="r-item-sub"><span>${esc([item.sku ? `SKU ${item.sku}` : "", variant].filter(Boolean).join(" · "))}</span><span>${item.qty} x ${money(item.price)}</span></div>
         ${free ? `<div class="r-free">FREE ITEM x${free}: -${money(free * Number(item.price))}</div>` : ""}
-        ${bill.v !== 2 && Number(item.discount || 0) ? `<div class="r-item-sub"><span>Discount ${item.discount}%</span></div>` : ""}
+        ${Number(item.discount || 0) ? `<div class="r-item-sub"><span>Discount ${item.discount}%</span><span>-${money(Number(item.price) * Number(item.qty) * Number(item.discount) / 100)}</span></div>` : ""}
       </div>`;
     }).join("");
     const returnsHtml = returns.length ? `<div class="r-line"></div><div class="r-tot">
@@ -63,7 +63,8 @@ const Receipt = (() => {
         <div><span>Items</span><span>${billItemCount(bill)}</span></div>
         <div><span>Subtotal</span><span>${money(totals.subtotal)}</span></div>
         ${totals.promoDiscount ? `<div><span>Promotional Discount</span><span>-${money(totals.promoDiscount)}</span></div>` : ""}
-        ${totals.itemDiscount + totals.billLevelDiscount ? `<div><span>Discount</span><span>-${money(totals.itemDiscount + totals.billLevelDiscount)}</span></div>` : ""}
+        ${totals.itemDiscount ? `<div><span>Product Discounts</span><span>-${money(totals.itemDiscount)}</span></div>` : ""}
+        ${totals.billLevelDiscount ? `<div><span>Bill Discount${bill.billDiscountPercent ? ` (${bill.billDiscountPercent}%)` : ""}</span><span>-${money(totals.billLevelDiscount)}</span></div>` : ""}
       </div>
       <div class="r-tot r-grand"><div><span>FINAL TOTAL</span><span>${money(totals.total)}</span></div></div>
       ${promoBlock(bill)}

@@ -45,6 +45,7 @@ Views.products = (() => {
         <div><small>Sizes</small><strong>${sizes.length ? esc(sizes.join(", ")) : "One size"}</strong></div>
         <div><small>Colours</small><strong>${colors.length ? esc(colors.join(", ")) : "—"}</strong></div>
         ${financial ? `<div><small>Cost price</small><strong>${product.costPrice ? money(product.costPrice) : "—"}</strong></div>` : ""}
+        <div><small>Discount</small><strong>${Number(product.discount) > 0 ? `${num(product.discount)}% → ${money(product.price * (1 - product.discount / 100))}` : "—"}</strong></div>
         <div><small>Stock</small><strong><span class="badge ${tone}">${num(stock)} ${stockState === "out" ? "· Out" : stockState === "low" ? "· Low" : ""}</span></strong></div>
       </div>
       <div class="info-actions">
@@ -183,6 +184,7 @@ Views.products = (() => {
             <div class="field"><label>Season</label><select id="pSeason">${SEASONS.map(season => `<option ${product.season === season ? "selected" : ""}>${season}</option>`).join("")}</select></div>
             <div class="field"><label>Sale price (Rs.) *</label><input id="pPrice" type="number" min="0" step="1" value="${esc(product.price)}" ${canPrice ? "" : "readonly title='You need price permission'"}>${canPrice ? "" : `<span class="hint">${icon("lock", 12)} Price locked for your role</span>`}</div>
             ${financial ? `<div class="field"><label>Cost price (Rs.)</label><input id="pCost" type="number" min="0" step="1" value="${esc(product.costPrice ?? "")}"></div>` : ""}
+            <div class="field"><label>Discount %</label><input id="pDiscount" type="number" min="0" max="100" step="0.5" value="${esc(Number(product.discount || 0) || "")}" placeholder="0" ${canPrice ? "" : "readonly"}><span class="hint">Removed automatically when a promotion deal is applied at checkout.</span></div>
             <div class="field"><label>Low stock alert at</label><input id="pLow" type="number" min="0" step="1" value="${esc(product.lowStockLevel ?? 5)}"></div>
             <div class="field span-2"><label>Remarks</label><input id="pRemarks" value="${esc(product.remarks || "")}" placeholder="Optional notes"></div>
             <div class="field"><label>Status</label><label class="check" style="min-height:46px"><span class="switch"><input type="checkbox" id="pActive" ${product.active !== false ? "checked" : ""}><span></span></span> Active (sellable)</label></div>
@@ -350,6 +352,7 @@ Views.products = (() => {
       const now = new Date().toISOString();
       const record = existing || { id: uid("p"), createdAt: now, createdBy: currentUser().username, invV2: true };
       const oldPrice = existing ? Number(existing.price) : null;
+      const oldDiscount = existing ? Number(existing.discount || 0) : 0;
       Object.assign(record, {
         name, sku, barcode,
         category: el.querySelector("#pDept").value,
@@ -360,7 +363,7 @@ Views.products = (() => {
         remarks: el.querySelector("#pRemarks").value.trim(),
         active: el.querySelector("#pActive").checked,
         image,
-        discount: 0,
+        discount: canPrice ? clamp(Number(el.querySelector("#pDiscount").value || 0), 0, 100) : Number(existing?.discount || 0),
         invV2: true,
         variants: variants.map(({ id: vid, size, color, sku: vsku, barcode: vbarcode }) => ({ id: vid, size, color, sku: vsku, barcode: vbarcode }))
       });
@@ -383,6 +386,7 @@ Views.products = (() => {
       invalidateCaches();
       record.stock = productStock(record);
       if (existing && oldPrice !== record.price) audit("product.price_change", "product", record.id, `${name}: ${money(oldPrice)} → ${money(record.price)}`);
+      if (oldDiscount !== Number(record.discount || 0)) audit("product.price_change", "product", record.id, `${name}: discount ${oldDiscount}% → ${record.discount}%`);
       audit(existing ? "product.update" : "product.create", "product", record.id, `${existing ? "Updated" : "Created"} ${name} (${variants.length} variant${variants.length === 1 ? "" : "s"})`);
       save();
       modal.close();
