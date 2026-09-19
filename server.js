@@ -131,7 +131,7 @@ function backupFile(name) {
 
 function dailyBackup() {
   try {
-    backupFile(`pos-state-${localDateKey()}.json`);
+    if (!backupFile(`pos-state-${localDateKey()}.json`)) return;
     const daily = fs.readdirSync(BACKUP_DIR).filter(name => /^pos-state-\d{4}-\d{2}-\d{2}\.json$/.test(name)).sort();
     daily.slice(0, Math.max(0, daily.length - DAILY_BACKUPS_KEPT)).forEach(name => fs.rmSync(path.join(BACKUP_DIR, name), { force: true }));
   } catch (error) {
@@ -753,12 +753,10 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-if (require.main === module) {
-  bootstrapStorage();
-  server.listen(PORT, HOST, () => {
-    console.log(`Brands Planets POS running on http://${HOST}:${PORT}`);
-    console.log(`Persistent POS state: ${STORAGE_FILE}`);
-  });
-}
-
-module.exports = { server, bootstrapStorage, mergePosStates, migrateStoredState, publicState, hashPassword, verifyPassword };
+// Start unconditionally: Hostinger's Node.js hosting loads this file through its own
+// wrapper, so a `require.main === module` guard would stop the server from listening.
+bootstrapStorage();
+server.listen(PORT, HOST, () => {
+  console.log(`Brands Planets POS running on http://${HOST}:${PORT}`);
+  console.log(`Persistent POS state: ${STORAGE_FILE}`);
+});
